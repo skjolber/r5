@@ -291,14 +291,6 @@ public class FastRaptorWorker {
                 doScheduledSearchForRound(scheduleState[round - 1], scheduleState[round]);
                 timeInScheduledSearchTransit += System.nanoTime() - scheduledStartTime;
 
-                // perform a frequency search using worst-case boarding time to provide a tighter upper bound,
-                // but only if there are frequency lines.
-                if (transit.hasFrequencies) {
-                    long frequencyStartTime = System.nanoTime();
-                    doFrequencySearchForRound(scheduleState[round - 1], scheduleState[round], true);
-                    timeInScheduledSearchFrequencyBounds += System.nanoTime() - frequencyStartTime;
-                }
-
                 long transferStartTime = System.nanoTime();
                 doTransfers(scheduleState[round]);
                 timeInScheduledSearchTransfers += System.nanoTime() - transferStartTime;
@@ -306,76 +298,26 @@ public class FastRaptorWorker {
             timeInScheduledSearch += System.nanoTime() - startTime;
         }
 
-        // now run frequency searches using randomized schedules for all frequency lines. We use the scheduled search
-        // and the worst-case boarding time of all frequency routes as an upper bound on the frequency search, so we are
-        // copying the arrival times from the just completed search. This is our key innovation, described in
-        // Conway, Byrd and van der Linden 2017.
-        if (transit.hasFrequencies) {
-            long startTime = System.nanoTime();
-            int[][] result = new int[iterationsPerMinute][];
-            for (int iteration = 0; iteration < iterationsPerMinute; iteration++) {
-                // copy the state, with advancingRound = false
-                RaptorState[] frequencyState = Stream.of(scheduleState).map((s) -> s.copy()).toArray(RaptorState[]::new);
-                for (int i = 1; i < frequencyState.length; i++) frequencyState[i].previous = frequencyState[i - 1];
-
-                // take a new Monte Carlo draw
-                // Einstein was probably wrong; God does in fact play dice with the universe, and so do we
-                offsets.randomize();
-
-                for (int round = 1; round <= request.maxRides; round++) {
-                    frequencyState[round].min(frequencyState[round - 1]);
-
-                    // scheduled search: use only stops touched within this loop
-                    // we need to repeat the scheduled search when we do frequency searches to handle combinations of schedules
-                    // and frequencies
-                    long scheduledStart = System.nanoTime();
-                    doScheduledSearchForRound(frequencyState[round - 1], frequencyState[round]);
-                    timeInFrequencySearchScheduled += System.nanoTime() - scheduledStart;
-
-                    // frequency search: additionally use stops touched by scheduled search
-                    // okay to destructively modify last round frequency state, it will not be used after this
-                    long frequencyStart = System.nanoTime();
-                    frequencyState[round - 1].bestStopsTouched.or(scheduleState[round - 1].bestStopsTouched);
-                    frequencyState[round - 1].nonTransferStopsTouched.or(scheduleState[round - 1].nonTransferStopsTouched);
-                    doFrequencySearchForRound(frequencyState[round - 1], frequencyState[round], false);
-                    timeInFrequencySearchFrequency += System.nanoTime() - frequencyStart;
-
-                    long transferStart = System.nanoTime();
-                    doTransfers(frequencyState[round]);
-                    timeInFrequencySearchTransfers += System.nanoTime() - transferStart;
-                }
-                // We are processing frequency routes, states are already a copy of the retained scheduled search state,
-                // no need to make an additional protective copy.
-                RaptorState finalRoundState = frequencyState[request.maxRides];
-                result[iteration] = finalRoundState.bestNonTransferTimes;
-                if (retainPaths) {
-                    pathsPerIteration.add(pathToEachStop(finalRoundState));
-                }
+        // If there are no frequency trips, return the result of the scheduled search, but repeated as many times
+        // as there are requested MC draws, so that the scheduled search accessibility avoids potential bugs
+        // where assumptions are made about how many results will be returned from a search, e.g., in
+        // https://github.com/conveyal/r5/issues/306
+        // FIXME on large networks with no frequency routes this seems extremely inefficient.
+        // It may be somewhat less inefficient than it seems if we make arrays of references all to the same object.
+        // TODO check whether we're actually hitting this code with iterationsPerMinute > 1 on scheduled networks.
+        int[][] result = new int[iterationsPerMinute][];
+        RaptorState finalRoundState = scheduleState[request.maxRides];
+        // This scheduleState is repeatedly modified as the outer loop progresses over departure minutes.
+        // We have to be careful here that creating these paths does not modify the state, and makes
+        // protective copies of any information we want to retain.
+        Path[] paths = retainPaths ? pathToEachStop(finalRoundState) : null;
+        for (int iteration = 0; iteration < monteCarloDrawsPerMinute; iteration++) {
+            result[iteration] = finalRoundState.bestNonTransferTimes;
+            if (retainPaths) {
+                pathsPerIteration.add(paths);
             }
-            timeInFrequencySearch += System.nanoTime() - startTime;
-            return result;
-        } else {
-            // If there are no frequency trips, return the result of the scheduled search, but repeated as many times
-            // as there are requested MC draws, so that the scheduled search accessibility avoids potential bugs
-            // where assumptions are made about how many results will be returned from a search, e.g., in
-            // https://github.com/conveyal/r5/issues/306
-            // FIXME on large networks with no frequency routes this seems extremely inefficient.
-            // It may be somewhat less inefficient than it seems if we make arrays of references all to the same object.
-            // TODO check whether we're actually hitting this code with iterationsPerMinute > 1 on scheduled networks.
-            int[][] result = new int[iterationsPerMinute][];
-            RaptorState finalRoundState = scheduleState[request.maxRides];
-            // This scheduleState is repeatedly modified as the outer loop progresses over departure minutes.
-            // We have to be careful here that creating these paths does not modify the state, and makes
-            // protective copies of any information we want to retain.
-            Path[] paths = retainPaths ? pathToEachStop(finalRoundState) : null;
-            for (int iteration = 0; iteration < monteCarloDrawsPerMinute; iteration++) {
-                result[iteration] = finalRoundState.bestNonTransferTimes;
-                if (retainPaths) {
-                    pathsPerIteration.add(paths);
-                }
-            }
-            return result;
         }
+        return result;
     }
 
     /**
@@ -480,138 +422,6 @@ public class FastRaptorWorker {
                 }
             }
         }
-    }
-
-    /** Do a frequency search. If computeDeterministicUpperBound is true, worst-case frequency boarding time will be used
-     * so that the output of this function can be used in a range-RAPTOR search. Otherwise Monte Carlo schedules will be
-     * used to improve upon the output of the range-RAPTOR bounds search.
-     *
-     * @param computeDeterministicUpperBound specifies whether to compute a deterministic upper bound, which helps speed up
-     *                                       subsequent frequency searches. If false, a bona fide frequency search is conducted
-     *                                       using randomized offsets.
-     */
-    private void doFrequencySearchForRound(RaptorState inputState, RaptorState outputState, boolean computeDeterministicUpperBound) {
-        BitSet patternsTouched = getPatternsTouchedForStops(inputState, frequencyIndexForOriginalPatternIndex);
-
-        for (int patternIndex = patternsTouched.nextSetBit(0); patternIndex >= 0; patternIndex = patternsTouched.nextSetBit(patternIndex + 1)) {
-            TripPattern pattern = runningFrequencyPatterns[patternIndex];
-
-            int tripScheduleIndex = -1; // first increment lands at 0
-            for (TripSchedule schedule : pattern.tripSchedules) {
-                tripScheduleIndex++;
-
-                // scheduled trip or not running
-                if (!servicesActive.get(schedule.serviceCode) || schedule.headwaySeconds == null) continue;
-
-                for (int frequencyEntryIdx = 0; frequencyEntryIdx < schedule.headwaySeconds.length; frequencyEntryIdx++) {
-                    int originalPatternIndex = originalPatternIndexForFrequencyIndex[patternIndex];
-
-                    int boardTime = -1;
-                    int boardStopPositionInPattern = -1;
-                    int waitTime = -1;
-
-                    for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
-                        int stop = pattern.stops[stopPositionInPattern];
-
-                        // attempt to alight if boarded
-                        if (boardTime > -1) {
-                            // attempt to alight
-                            int travelTime = schedule.arrivals[stopPositionInPattern] - schedule.departures[boardStopPositionInPattern];
-                            int alightTime = boardTime + travelTime;
-                            int boardStop = pattern.stops[boardStopPositionInPattern];
-                            outputState.setTimeAtStop(stop, alightTime, originalPatternIndex, boardStop, waitTime, travelTime, false);
-                        }
-
-                        // attempt to board (even if already boarded, since this is a frequency trip and we could move back)
-                        if (inputState.bestStopsTouched.get(stop)) {
-                            int earliestBoardTime = inputState.bestTimes[stop] + MINIMUM_BOARD_WAIT_SEC;
-
-                            // if we're computing the upper bound, we want the worst case. This is the only thing that is
-                            // valid in a range RAPTOR search; using random schedule draws in range RAPTOR would be problematic
-                            // because they need to be independent across minutes.
-
-                            int newBoardingDepartureTimeAtStop;
-
-                            if (computeDeterministicUpperBound) {
-                                newBoardingDepartureTimeAtStop = getWorstCaseFrequencyDepartureTime(schedule, stopPositionInPattern, frequencyEntryIdx, earliestBoardTime);
-                            } else {
-                                int offset = offsets.offsets.get(originalPatternIndex)[tripScheduleIndex][frequencyEntryIdx];
-                                newBoardingDepartureTimeAtStop = getRandomFrequencyDepartureTime(schedule, stopPositionInPattern, offset, frequencyEntryIdx, earliestBoardTime);
-                            }
-
-                            int remainOnBoardDepartureTimeAtStop = Integer.MAX_VALUE;
-
-                            if (boardTime > -1) {
-                                // Cannot re-use calc from above, we're using departure time at this stop here to account for
-                                // any dwell time (TODO this may be done incorrectly in existing RaptorWorker)
-                                int travelTime = schedule.departures[stopPositionInPattern] - schedule.departures[boardStopPositionInPattern];
-                                remainOnBoardDepartureTimeAtStop = boardTime + travelTime;
-                            }
-                            if (newBoardingDepartureTimeAtStop > -1 && newBoardingDepartureTimeAtStop < remainOnBoardDepartureTimeAtStop) {
-                                // board this trip
-                                boardTime = newBoardingDepartureTimeAtStop;
-                                waitTime = boardTime - inputState.bestTimes[stop];
-                                boardStopPositionInPattern = stopPositionInPattern;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /** Get the earliest departure time on a particular scheduled frequency entry, or -1 if the frequency entry is not usable */
-    public int getRandomFrequencyDepartureTime (TripSchedule schedule, int stopPositionInPattern, int offset, int frequencyEntryIdx, int earliestTime) {
-        // earliest board time is start time plus travel time plus offset
-        int earliestBoardTimeThisEntry = schedule.startTimes[frequencyEntryIdx] +
-                schedule.departures[stopPositionInPattern] +
-                offset;
-
-        // compute the number of trips on this entry
-        // We take the difference between the end time and the start time including the offset
-        // to get the time between the first trip and the last possible trip. We int-divide by the
-        // headway and add one to correct for the fencepost problem.
-        int numberOfTripsThisEntry = (schedule.endTimes[frequencyEntryIdx] - (schedule.startTimes[frequencyEntryIdx] + offset)) /
-                schedule.headwaySeconds[frequencyEntryIdx] + 1;
-
-        // the earliest time we can leave this stop based on when we arrived
-        // We subtract one because we find trips that have departure time > this time, not
-        // >=
-        int lowerBoundBoardTime = earliestTime - 1;
-        int earliestFeasibleTripIndexThisEntry;
-        if (lowerBoundBoardTime <= earliestBoardTimeThisEntry) {
-            earliestFeasibleTripIndexThisEntry = 0;
-        } else {
-            // find earliest trip later than the lower bound on board time
-            // We add one because int math floors the result.
-            // This is why we subtracted one second above, so that if the earliest board time
-            // is exactly the second when the trip arrives, we will find that trip rather than the
-            // next trip when we add one.
-            earliestFeasibleTripIndexThisEntry =
-                    (lowerBoundBoardTime - earliestBoardTimeThisEntry) / schedule.headwaySeconds[frequencyEntryIdx] + 1;
-        }
-
-        if (earliestFeasibleTripIndexThisEntry < numberOfTripsThisEntry) {
-            return earliestBoardTimeThisEntry + earliestFeasibleTripIndexThisEntry * schedule.headwaySeconds[frequencyEntryIdx];
-        } else {
-            return -1;
-        }
-    }
-
-    public int getWorstCaseFrequencyDepartureTime (TripSchedule schedule, int stopPositionInPattern, int frequencyEntryIdx, int earliestTime) {
-        int headway = schedule.headwaySeconds[frequencyEntryIdx];
-        int travelTimeFromStartOfTrip = schedule.departures[stopPositionInPattern];
-        // The last vehicle could leave the terminal as early as headwaySeconds before the end of the frequency entry.
-        int earliestEndTimeOfFrequencyEntry = schedule.endTimes[frequencyEntryIdx] - headway + travelTimeFromStartOfTrip;
-
-        if (earliestEndTimeOfFrequencyEntry < earliestTime) return -1;
-
-        // board pessimistically assuming the entry is already running
-        int latestBoardTimeAssumingEntryIsAlreadyRunning = earliestTime + headway;
-        // figure out the latest departure time of this trip at this stop
-        int latestBoardTimeOfFirstTrip = schedule.startTimes[frequencyEntryIdx] + headway + travelTimeFromStartOfTrip;
-        // return the max of those two
-        return Math.max(latestBoardTimeAssumingEntryIsAlreadyRunning, latestBoardTimeOfFirstTrip);
     }
 
     private void doTransfers (RaptorState state) {
