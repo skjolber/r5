@@ -1,6 +1,9 @@
-package com.conveyal.r5.profile;
+package com.conveyal.r5.profile.mcrr;
 
 import com.conveyal.r5.api.util.TransitModes;
+import com.conveyal.r5.profile.Path;
+import com.conveyal.r5.profile.ProfileRequest;
+import com.conveyal.r5.profile.RaptorState;
 import com.conveyal.r5.transit.RouteInfo;
 import com.conveyal.r5.transit.TransitLayer;
 import com.conveyal.r5.transit.TripPattern;
@@ -16,7 +19,6 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 /**
  * RaptorWorker is fast, but FastRaptorWorker is knock-your-socks-off fast, and also more maintainable.
@@ -39,7 +41,8 @@ import java.util.stream.Stream;
  * the way we do all analysis work. This system also accounts for pure-frequency routes by using Monte Carlo methods
  * (generating randomized schedules).
  */
-public class FastRaptorWorker {
+@SuppressWarnings("Duplicates")
+public class MultiCriteriaRangeRaptorWorker {
 
     /**
      * This value essentially serves as Infinity for ints - it's bigger than every other number.
@@ -51,7 +54,7 @@ public class FastRaptorWorker {
     /** Minimum slack time to board transit in seconds. */
     public static final int BOARD_SLACK_SECONDS = 60;
 
-    private static final Logger LOG = LoggerFactory.getLogger(FastRaptorWorker.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MultiCriteriaRangeRaptorWorker.class);
 
     /**
      * Step for departure times. Use caution when changing this as we use the functions
@@ -63,22 +66,15 @@ public class FastRaptorWorker {
 
     /** Minimum wait for boarding to account for schedule variation */
     private static final int MINIMUM_BOARD_WAIT_SEC = 60;
-    public final int nMinutes;
-    public final int monteCarloDrawsPerMinute;
+    private final int nMinutes;
 
     // Variables to track time spent, all in nanoseconds (some of the operations we're timing are significantly submillisecond)
     // (although I suppose using ms would be fine because the number of times we cross a millisecond boundary would be proportional
     //  to the portion of a millisecond that operation took).
-    public long startClockTime;
-    public long timeInScheduledSearch;
-    public long timeInScheduledSearchTransit;
-    public long timeInScheduledSearchFrequencyBounds;
-    public long timeInScheduledSearchTransfers;
-
-    public long timeInFrequencySearch;
-    public long timeInFrequencySearchFrequency;
-    public long timeInFrequencySearchScheduled;
-    public long timeInFrequencySearchTransfers;
+    private long startClockTime;
+    private long timeInScheduledSearch;
+    private long timeInScheduledSearchTransit;
+    private long timeInScheduledSearchTransfers;
 
     /** the transit layer to route on */
     private final TransitLayer transit;
@@ -89,25 +85,14 @@ public class FastRaptorWorker {
     /** The profilerequest describing routing parameters */
     private final ProfileRequest request;
 
-    /** Frequency-based trip patterns running on a given day */
-    private TripPattern[] runningFrequencyPatterns;
-
     /** Schedule-based trip patterns running on a given day */
     private TripPattern[] runningScheduledPatterns;
-
-    /** Map from internal, filtered frequency pattern indices back to original pattern indices for frequency patterns */
-    private int[] originalPatternIndexForFrequencyIndex;
 
     /** Map from internal, filtered pattern indices back to original pattern indices for scheduled patterns */
     private int[] originalPatternIndexForScheduledIndex;
 
-    /** Array mapping from original pattern indices to the filtered frequency indices */
-    private int[] frequencyIndexForOriginalPatternIndex;
-
     /** Array mapping from original pattern indices to the filtered scheduled indices */
     private int[] scheduledIndexForOriginalPatternIndex;
-
-    private FrequencyRandomOffsets offsets;
 
     /** Services active on the date of the search */
     private final BitSet servicesActive;
@@ -121,7 +106,7 @@ public class FastRaptorWorker {
     /** If we're going to store paths to every destination (e.g. for static sites) then they'll be retained here. */
     public List<Path[]> pathsPerIteration;
 
-    public FastRaptorWorker (TransitLayer transitLayer, ProfileRequest request, TIntIntMap accessStops) {
+    public MultiCriteriaRangeRaptorWorker(TransitLayer transitLayer, ProfileRequest request, TIntIntMap accessStops) {
         this.transit = transitLayer;
         this.request = request;
         this.accessStops = accessStops;
@@ -133,13 +118,8 @@ public class FastRaptorWorker {
 
         for (int i = 1; i < this.scheduleState.length; i++) this.scheduleState[i].previous = this.scheduleState[i - 1];
 
-        offsets = new FrequencyRandomOffsets(transitLayer);
-
         // compute number of minutes for scheduled search
         nMinutes = request.getTimeWindowLengthMinutes();
-
-        // how many monte carlo draws per minute of scheduled search to get desired total iterations?
-        monteCarloDrawsPerMinute = request.getMonteCarloDrawsPerMinute();
     }
 
     /**
@@ -147,16 +127,15 @@ public class FastRaptorWorker {
      * Return value dimension order is [searchIteration][transitStopIndex]
      */
     public int[][] route () {
-        LOG.info("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -");
-        LOG.info("Performing {} scheduled iterations each with {} Monte Carlo draws for a total of {} iterations",
-                nMinutes, monteCarloDrawsPerMinute, nMinutes * monteCarloDrawsPerMinute);
+        LOG.info("- - - - - - - - - - - - -");
+        LOG.info("Performing {} scheduled iterations",  nMinutes);
 
         startClockTime = System.nanoTime();
         prefilterPatterns();
 
         // Initialize result storage.
         // Results are one arrival time at each stop, for every raptor iteration.
-        int[][] arrivalTimesAtStopsPerIteration = new int[nMinutes * monteCarloDrawsPerMinute][];
+        int[][] arrivalTimesAtStopsPerIteration = new int[nMinutes][];
         if (retainPaths) pathsPerIteration = new ArrayList<>();
         int currentIteration = 0;
 
@@ -165,57 +144,47 @@ public class FastRaptorWorker {
              departureTime >= request.fromTime;
              departureTime -= DEPARTURE_STEP_SEC, minute--) {
 
+            //if (minute % 15 == 0) LOG.debug("  minute {}", minute);
+
             // Run the raptor search. For this particular departure time, we receive N arrays of arrival times at all
             // stops, one for each randomized schedule: resultsForMinute[randScheduleNumber][transitStop]
-            int[][] resultsForMinute = runRaptorForMinute(departureTime, monteCarloDrawsPerMinute);
+            int[] resultsForMinute = runRaptorForMinute(departureTime);
 
             // Bypass Java's "effectively final" nonsense.
             // FIXME we could avoid this "final" weirdness by just using non-stream explicit loop syntax over the stops.
             // TODO clarify identifiers and explain how results are being unrolled from minutes into 'iterations'.
             final int finalDepartureTime = departureTime;
-            for (int[] arrivalTimesAtStops : resultsForMinute) {
-                // NB this copies the array, so we don't have issues with it being updated later
-                arrivalTimesAtStopsPerIteration[currentIteration++] = IntStream.of(arrivalTimesAtStops)
-                        .map(r -> r != UNREACHED ? r - finalDepartureTime : r)
-                        .toArray();
-            }
-        }
 
-        LOG.info("Search completed in {}s", (System.nanoTime() - startClockTime) / 1e9d);
+            // NB this copies the array, so we don't have issues with it being updated later
+            arrivalTimesAtStopsPerIteration[currentIteration++] = IntStream.of(resultsForMinute)
+                    .map(r -> r != UNREACHED ? r - finalDepartureTime : r)
+                    .toArray();
+        }
+        double time =  (System.nanoTime() - startClockTime) / 1e9d;
+
+        LOG.info("Search completed in {}s", time);
         LOG.info("Scheduled/bounds search: {}s", timeInScheduledSearch / 1e9d);
         LOG.info("  - Scheduled search: {}s", timeInScheduledSearchTransit / 1e9d);
-        LOG.info("  - Frequency upper bounds: {}s", timeInScheduledSearchFrequencyBounds / 1e9d);
         LOG.info("  - Transfers: {}s", timeInScheduledSearchTransfers / 1e9d);
-        LOG.info("Frequency search: {}s", timeInFrequencySearch / 1e9d);
-        LOG.info("  - Frequency component: {}s", timeInFrequencySearchFrequency / 1e9d);
-        LOG.info("  - Resulting updates to scheduled component: {}s", timeInFrequencySearchScheduled / 1e9d);
-        LOG.info("  - Transfers: {}s", timeInFrequencySearchTransfers / 1e9d);
 
         return arrivalTimesAtStopsPerIteration;
     }
 
     /** Prefilter the patterns to only ones that are running */
     private void prefilterPatterns () {
-        TIntList frequencyPatterns = new TIntArrayList();
         TIntList scheduledPatterns = new TIntArrayList();
-        frequencyIndexForOriginalPatternIndex = new int[transit.tripPatterns.size()];
-        Arrays.fill(frequencyIndexForOriginalPatternIndex, -1);
         scheduledIndexForOriginalPatternIndex = new int[transit.tripPatterns.size()];
         Arrays.fill(scheduledIndexForOriginalPatternIndex, -1);
 
         int patternIndex = -1; // first increment lands at 0
-        int frequencyIndex = 0;
         int scheduledIndex = 0;
+
         for (TripPattern pattern : transit.tripPatterns) {
             patternIndex++;
             RouteInfo routeInfo = transit.routes.get(pattern.routeIndex);
             TransitModes mode = TransitLayer.getTransitModes(routeInfo.route_type);
             if (pattern.servicesActive.intersects(servicesActive) && request.transitModes.contains(mode)) {
                 // at least one trip on this pattern is relevant, based on the profile request's date and modes
-                if (pattern.hasFrequencies) {
-                    frequencyPatterns.add(patternIndex);
-                    frequencyIndexForOriginalPatternIndex[patternIndex] = frequencyIndex++;
-                }
                 if (pattern.hasSchedules) { // NB not else b/c we still support combined frequency and schedule patterns.
                     scheduledPatterns.add(patternIndex);
                     scheduledIndexForOriginalPatternIndex[patternIndex] = scheduledIndex++;
@@ -223,16 +192,13 @@ public class FastRaptorWorker {
             }
         }
 
-        originalPatternIndexForFrequencyIndex = frequencyPatterns.toArray();
         originalPatternIndexForScheduledIndex = scheduledPatterns.toArray();
 
-        runningFrequencyPatterns = IntStream.of(originalPatternIndexForFrequencyIndex)
-                .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
         runningScheduledPatterns = IntStream.of(originalPatternIndexForScheduledIndex)
                 .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
 
-        LOG.info("Prefiltering patterns based on date active reduced {} patterns to {} frequency and {} scheduled patterns",
-                transit.tripPatterns.size(), frequencyPatterns.size(), scheduledPatterns.size());
+        LOG.info("Prefiltering patterns based on date active reduced {} patterns to {} scheduled patterns",
+                transit.tripPatterns.size(), scheduledPatterns.size());
     }
 
     /**
@@ -262,12 +228,9 @@ public class FastRaptorWorker {
      * Perform one minute of a RAPTOR search.
      *
      * @param departureTime When this search departs.
-     * @param iterationsPerMinute When frequencies are present, we perform multiple searches per departure minute using
-     *                            different randomly-generated schedules (Monte Carlo search); this parameter controls
-     *                            how many.
      * @return an array of length iterationsPerMinute, containing the arrival (clock) times at each stop for each iteration.
      */
-    private int[][] runRaptorForMinute (int departureTime, int iterationsPerMinute) {
+    private int[] runRaptorForMinute (int departureTime) {
         advanceScheduledSearchToPreviousMinute(departureTime);
 
         // Run the scheduled search
@@ -304,17 +267,17 @@ public class FastRaptorWorker {
         // FIXME on large networks with no frequency routes this seems extremely inefficient.
         // It may be somewhat less inefficient than it seems if we make arrays of references all to the same object.
         // TODO check whether we're actually hitting this code with iterationsPerMinute > 1 on scheduled networks.
-        int[][] result = new int[iterationsPerMinute][];
+
         RaptorState finalRoundState = scheduleState[request.maxRides];
         // This scheduleState is repeatedly modified as the outer loop progresses over departure minutes.
         // We have to be careful here that creating these paths does not modify the state, and makes
         // protective copies of any information we want to retain.
         Path[] paths = retainPaths ? pathToEachStop(finalRoundState) : null;
-        for (int iteration = 0; iteration < monteCarloDrawsPerMinute; iteration++) {
-            result[iteration] = finalRoundState.bestNonTransferTimes;
-            if (retainPaths) {
-                pathsPerIteration.add(paths);
-            }
+
+        int[] result = finalRoundState.bestNonTransferTimes;
+
+        if (retainPaths) {
+            pathsPerIteration.add(paths);
         }
         return result;
     }

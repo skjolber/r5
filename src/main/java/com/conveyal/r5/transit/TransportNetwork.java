@@ -88,6 +88,12 @@ public class TransportNetwork implements Serializable {
 
     public static TransportNetwork read (File file) throws Exception {
         LOG.info("Reading transport network...");
+        LOG.info("Load file: " + file.getAbsolutePath());
+
+        if(!file.exists()) {
+            throw new IllegalArgumentException("Network file does not exist: " + file.getAbsolutePath());
+        }
+
         TransportNetwork result = ExpandingMMFBytez.readObjectFromFile(file);
         LOG.info("Done reading.");
         if (result.fareCalculator != null) {
