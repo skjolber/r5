@@ -51,7 +51,11 @@ public class FastRaptorWorker {
     /** Minimum slack time to board transit in seconds. */
     public static final int BOARD_SLACK_SECONDS = 60;
 
+    public int maxArrival = 0;
+
     private static final Logger LOG = LoggerFactory.getLogger(FastRaptorWorker.class);
+
+    private static final int NUMBER_OF_SECONDS_IN_DAY = 86400;
 
     /**
      * Step for departure times. Use caution when changing this as we use the functions
@@ -65,6 +69,7 @@ public class FastRaptorWorker {
     private static final int MINIMUM_BOARD_WAIT_SEC = 60;
     public final int nMinutes;
     public final int monteCarloDrawsPerMinute;
+    public final int numberOfDays;
 
     // Variables to track time spent, all in nanoseconds (some of the operations we're timing are significantly submillisecond)
     // (although I suppose using ms would be fine because the number of times we cross a millisecond boundary would be proportional
@@ -90,27 +95,29 @@ public class FastRaptorWorker {
     private final ProfileRequest request;
 
     /** Frequency-based trip patterns running on a given day */
-    private TripPattern[] runningFrequencyPatterns;
+    private TripPattern[][] runningFrequencyPatterns;
 
     /** Schedule-based trip patterns running on a given day */
-    private TripPattern[] runningScheduledPatterns;
+    private TripPattern[][] runningScheduledPatterns;
 
     /** Map from internal, filtered frequency pattern indices back to original pattern indices for frequency patterns */
-    private int[] originalPatternIndexForFrequencyIndex;
+    private int[][] originalPatternIndexForFrequencyIndex;
 
     /** Map from internal, filtered pattern indices back to original pattern indices for scheduled patterns */
-    private int[] originalPatternIndexForScheduledIndex;
+    private int[][] originalPatternIndexForScheduledIndex;
 
     /** Array mapping from original pattern indices to the filtered frequency indices */
-    private int[] frequencyIndexForOriginalPatternIndex;
+    private int[][] frequencyIndexForOriginalPatternIndex;
 
     /** Array mapping from original pattern indices to the filtered scheduled indices */
-    private int[] scheduledIndexForOriginalPatternIndex;
+    private int[][] scheduledIndexForOriginalPatternIndex;
 
     private FrequencyRandomOffsets offsets;
 
     /** Services active on the date of the search */
     private final BitSet servicesActive;
+
+    private final BitSet[] servicesActivePerDay;
 
     // TODO add javadoc to field
     private final RaptorState[] scheduleState;
@@ -122,10 +129,12 @@ public class FastRaptorWorker {
     public List<Path[]> pathsPerIteration;
 
     public FastRaptorWorker (TransitLayer transitLayer, ProfileRequest request, TIntIntMap accessStops) {
+        this.numberOfDays = 4;
         this.transit = transitLayer;
         this.request = request;
         this.accessStops = accessStops;
-        this.servicesActive  = transit.getActiveServicesForDate(request.date);
+        this.servicesActivePerDay  = transit.getActiveServicesForDateRange(request.date, numberOfDays);
+        this.servicesActive = transit.getAggregatedActiveServicesForDateRange(this.servicesActivePerDay);
         // we add one to request.maxRides, first state is result of initial walk
         this.scheduleState = IntStream.range(0, request.maxRides + 1)
                 .mapToObj((i) -> new RaptorState(transit.getStopCount(), request.maxTripDurationMinutes * 60))
@@ -197,43 +206,52 @@ public class FastRaptorWorker {
 
     /** Prefilter the patterns to only ones that are running */
     private void prefilterPatterns () {
-        TIntList frequencyPatterns = new TIntArrayList();
-        TIntList scheduledPatterns = new TIntArrayList();
-        frequencyIndexForOriginalPatternIndex = new int[transit.tripPatterns.size()];
-        Arrays.fill(frequencyIndexForOriginalPatternIndex, -1);
-        scheduledIndexForOriginalPatternIndex = new int[transit.tripPatterns.size()];
-        Arrays.fill(scheduledIndexForOriginalPatternIndex, -1);
+        runningFrequencyPatterns = new TripPattern[numberOfDays][];
+        runningScheduledPatterns = new TripPattern[numberOfDays][];
+        originalPatternIndexForFrequencyIndex = new int[numberOfDays][];
+        originalPatternIndexForScheduledIndex = new int[numberOfDays][];
+        frequencyIndexForOriginalPatternIndex = new int[numberOfDays][];
+        scheduledIndexForOriginalPatternIndex = new int[numberOfDays][];
 
-        int patternIndex = -1; // first increment lands at 0
-        int frequencyIndex = 0;
-        int scheduledIndex = 0;
-        for (TripPattern pattern : transit.tripPatterns) {
-            patternIndex++;
-            RouteInfo routeInfo = transit.routes.get(pattern.routeIndex);
-            TransitModes mode = TransitLayer.getTransitModes(routeInfo.route_type);
-            if (pattern.servicesActive.intersects(servicesActive) && request.transitModes.contains(mode)) {
-                // at least one trip on this pattern is relevant, based on the profile request's date and modes
-                if (pattern.hasFrequencies) {
-                    frequencyPatterns.add(patternIndex);
-                    frequencyIndexForOriginalPatternIndex[patternIndex] = frequencyIndex++;
-                }
-                if (pattern.hasSchedules) { // NB not else b/c we still support combined frequency and schedule patterns.
-                    scheduledPatterns.add(patternIndex);
-                    scheduledIndexForOriginalPatternIndex[patternIndex] = scheduledIndex++;
+        for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++) {
+            TIntList frequencyPatterns = new TIntArrayList();
+            TIntList scheduledPatterns = new TIntArrayList();
+            frequencyIndexForOriginalPatternIndex[dayIndex] = new int[transit.tripPatterns.size()];
+            Arrays.fill(frequencyIndexForOriginalPatternIndex[dayIndex], -1);
+            scheduledIndexForOriginalPatternIndex[dayIndex] = new int[transit.tripPatterns.size()];
+            Arrays.fill(scheduledIndexForOriginalPatternIndex[dayIndex], -1);
+
+            int patternIndex = -1; // first increment lands at 0
+            int frequencyIndex = 0;
+            int scheduledIndex = 0;
+            for (TripPattern pattern : transit.tripPatterns) {
+                patternIndex++;
+                RouteInfo routeInfo = transit.routes.get(pattern.routeIndex);
+                TransitModes mode = TransitLayer.getTransitModes(routeInfo.route_type);
+                if (pattern.servicesActive.intersects(servicesActivePerDay[dayIndex]) && request.transitModes.contains(mode)) {
+                    // at least one trip on this pattern is relevant, based on the profile request's date and modes
+                    if (pattern.hasFrequencies) {
+                        frequencyPatterns.add(patternIndex);
+                        frequencyIndexForOriginalPatternIndex[dayIndex][patternIndex] = frequencyIndex++;
+                    }
+                    if (pattern.hasSchedules) { // NB not else b/c we still support combined frequency and schedule patterns.
+                        scheduledPatterns.add(patternIndex);
+                        scheduledIndexForOriginalPatternIndex[dayIndex][patternIndex] = scheduledIndex++;
+                    }
                 }
             }
+
+            originalPatternIndexForFrequencyIndex[dayIndex] = frequencyPatterns.toArray();
+            originalPatternIndexForScheduledIndex[dayIndex] = scheduledPatterns.toArray();
+
+            runningFrequencyPatterns[dayIndex] = IntStream.of(originalPatternIndexForFrequencyIndex[dayIndex])
+                    .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
+            runningScheduledPatterns[dayIndex] = IntStream.of(originalPatternIndexForScheduledIndex[dayIndex])
+                    .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
+
+            LOG.info("Prefiltering patterns based on date active reduced {} patterns to {} frequency and {} scheduled patterns",
+                    transit.tripPatterns.size(), frequencyPatterns.size(), scheduledPatterns.size());
         }
-
-        originalPatternIndexForFrequencyIndex = frequencyPatterns.toArray();
-        originalPatternIndexForScheduledIndex = scheduledPatterns.toArray();
-
-        runningFrequencyPatterns = IntStream.of(originalPatternIndexForFrequencyIndex)
-                .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
-        runningScheduledPatterns = IntStream.of(originalPatternIndexForScheduledIndex)
-                .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
-
-        LOG.info("Prefiltering patterns based on date active reduced {} patterns to {} frequency and {} scheduled patterns",
-                transit.tripPatterns.size(), frequencyPatterns.size(), scheduledPatterns.size());
     }
 
     /**
@@ -338,84 +356,92 @@ public class FastRaptorWorker {
 
     /** Perform a scheduled search */
     private void doScheduledSearchForRound(RaptorState inputState, RaptorState outputState) {
-        BitSet patternsTouched = getPatternsTouchedForStops(inputState, scheduledIndexForOriginalPatternIndex);
+        for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++) {
+
+            BitSet patternsTouched = getPatternsTouchedForStops(inputState, scheduledIndexForOriginalPatternIndex[dayIndex]);
+
+
 
         for (int patternIndex = patternsTouched.nextSetBit(0); patternIndex >= 0; patternIndex = patternsTouched.nextSetBit(patternIndex + 1)) {
-            int originalPatternIndex = originalPatternIndexForScheduledIndex[patternIndex];
-            TripPattern pattern = runningScheduledPatterns[patternIndex];
+
+            TripSchedule schedule = null;
             int onTrip = -1;
             int waitTime = 0;
             int boardTime = 0;
             int boardStop = -1;
-            TripSchedule schedule = null;
 
-            for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
-                int stop = pattern.stops[stopPositionInPattern];
+            int originalPatternIndex = originalPatternIndexForScheduledIndex[dayIndex][patternIndex];
+            TripPattern pattern = runningScheduledPatterns[dayIndex][patternIndex];
 
-                // attempt to alight if we're on board, done above the board search so that we don't check for alighting
-                // when boarding
-                if (onTrip > -1) {
-                    int alightTime = schedule.arrivals[stopPositionInPattern];
-                    int onVehicleTime = alightTime - boardTime;
+                for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
+                    int stop = pattern.stops[stopPositionInPattern];
 
-                    if (waitTime + onVehicleTime + inputState.bestTimes[boardStop] > alightTime) {
-                        LOG.error("Components of travel time are larger than travel time!");
+                    // attempt to alight if we're on board, done above the board search so that we don't check for alighting
+                    // when boarding
+                    if (onTrip > -1) {
+                        int alightTime = schedule.arrivals[stopPositionInPattern] + (dayIndex * NUMBER_OF_SECONDS_IN_DAY);
+                        int onVehicleTime = alightTime - boardTime;
+
+                        if (waitTime + onVehicleTime + inputState.bestTimes[boardStop] > alightTime) {
+                            LOG.error("Components of travel time are larger than travel time!");
+                        }
+
+                        outputState.setTimeAtStop(stop, alightTime, originalPatternIndex, boardStop, waitTime, onVehicleTime, false, pattern.tripSchedules.indexOf(schedule), boardTime, -1);
                     }
 
-                    outputState.setTimeAtStop(stop, alightTime, originalPatternIndex, boardStop, waitTime, onVehicleTime, false, pattern.tripSchedules.indexOf(schedule), boardTime, -1);
-                }
+                    int sourcePatternIndex = inputState.previousStop[stop] == -1 ?
+                            inputState.previousPatterns[stop] :
+                            inputState.previousPatterns[inputState.previousStop[stop]];
 
-                int sourcePatternIndex = inputState.previousStop[stop] == -1 ?
-                        inputState.previousPatterns[stop] :
-                        inputState.previousPatterns[inputState.previousStop[stop]];
+                    // Don't attempt to board if this stop was not reached in the last round, and don't attempt to
+                    // reboard the same pattern
+                    if (inputState.bestStopsTouched.get(stop) && sourcePatternIndex != originalPatternIndex) {
+                        int earliestBoardTime = inputState.bestTimes[stop] + MINIMUM_BOARD_WAIT_SEC;
 
-                // Don't attempt to board if this stop was not reached in the last round, and don't attempt to
-                // reboard the same pattern
-                if (inputState.bestStopsTouched.get(stop) && sourcePatternIndex != originalPatternIndex) {
-                    int earliestBoardTime = inputState.bestTimes[stop] + MINIMUM_BOARD_WAIT_SEC;
+                        // only attempt to board if the stop was touched
+                        if (onTrip == -1) {
+                            if (inputState.bestStopsTouched.get(stop)) {
+                                int candidateTripIndex = -1;
+                                EARLIEST_TRIP:
+                                for (TripSchedule candidateSchedule : pattern.tripSchedules) {
+                                    candidateTripIndex++;
 
-                    // only attempt to board if the stop was touched
-                    if (onTrip == -1) {
-                        if (inputState.bestStopsTouched.get(stop)) {
-                            int candidateTripIndex = -1;
-                            EARLIEST_TRIP:
-                            for (TripSchedule candidateSchedule : pattern.tripSchedules) {
-                                candidateTripIndex++;
+                                    if (!servicesActive.get(candidateSchedule.serviceCode) || candidateSchedule.headwaySeconds != null) {
+                                        // frequency trip or not running
+                                        continue;
+                                    }
 
-                                if (!servicesActive.get(candidateSchedule.serviceCode) || candidateSchedule.headwaySeconds != null) {
-                                    // frequency trip or not running
+                                    if (earliestBoardTime < candidateSchedule.departures[stopPositionInPattern] + (dayIndex * NUMBER_OF_SECONDS_IN_DAY)) {
+                                        // board this vehicle
+                                        onTrip = candidateTripIndex;
+                                        schedule = candidateSchedule;
+                                        boardTime = candidateSchedule.departures[stopPositionInPattern] + (dayIndex * NUMBER_OF_SECONDS_IN_DAY);
+                                        waitTime = boardTime - inputState.bestTimes[stop];
+                                        boardStop = stop;
+                                        maxArrival = Math.max(maxArrival, boardTime);
+                                        break EARLIEST_TRIP;
+                                    }
+                                }
+                            }
+                        } else {
+                            // check if we can back up to an earlier trip due to this stop being reached earlier
+                            int bestTripIdx = onTrip;
+                            while (--bestTripIdx >= 0) {
+                                TripSchedule trip = pattern.tripSchedules.get(bestTripIdx);
+                                if (trip.headwaySeconds != null || !servicesActive.get(trip.serviceCode)) {
+                                    // This is a frequency trip or it is not running on the day of the search.
                                     continue;
                                 }
-
-                                if (earliestBoardTime < candidateSchedule.departures[stopPositionInPattern]) {
-                                    // board this vehicle
-                                    onTrip = candidateTripIndex;
-                                    schedule = candidateSchedule;
-                                    boardTime = candidateSchedule.departures[stopPositionInPattern];
+                                if (trip.departures[stopPositionInPattern] + (dayIndex * NUMBER_OF_SECONDS_IN_DAY) > earliestBoardTime) {
+                                    onTrip = bestTripIdx;
+                                    schedule = trip;
+                                    boardTime = trip.departures[stopPositionInPattern] + (dayIndex * NUMBER_OF_SECONDS_IN_DAY);
                                     waitTime = boardTime - inputState.bestTimes[stop];
                                     boardStop = stop;
-                                    break EARLIEST_TRIP;
+                                } else {
+                                    // this trip arrives too early, break loop since they are sorted by departure time
+                                    break;
                                 }
-                            }
-                        }
-                    } else {
-                        // check if we can back up to an earlier trip due to this stop being reached earlier
-                        int bestTripIdx = onTrip;
-                        while (--bestTripIdx >= 0) {
-                            TripSchedule trip = pattern.tripSchedules.get(bestTripIdx);
-                            if (trip.headwaySeconds != null || !servicesActive.get(trip.serviceCode)) {
-                                // This is a frequency trip or it is not running on the day of the search.
-                                continue;
-                            }
-                            if (trip.departures[stopPositionInPattern] > earliestBoardTime) {
-                                onTrip = bestTripIdx;
-                                schedule = trip;
-                                boardTime = trip.departures[stopPositionInPattern];
-                                waitTime = boardTime - inputState.bestTimes[stop];
-                                boardStop = stop;
-                            } else {
-                                // this trip arrives too early, break loop since they are sorted by departure time
-                                break;
                             }
                         }
                     }

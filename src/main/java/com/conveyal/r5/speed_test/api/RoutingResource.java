@@ -392,7 +392,7 @@ public abstract class RoutingResource {
 
         request.accessModes =  request.egressModes = request.directModes = EnumSet.of(LegMode.WALK);
         request.maxWalkTime = (int)Math.floor(maxWalkDistance / 0.58 / 60); // Meters to minute at walk speed 1.3 mph
-        request.maxTripDurationMinutes = 1440; // 24 hours
+        request.maxTripDurationMinutes = 10080; // 24 hours
 
         request.transitModes = EnumSet.noneOf(TransitModes.class);
         for (QualifiedMode qualifiedMode : modes.qModes) {

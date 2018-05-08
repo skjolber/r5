@@ -27,6 +27,7 @@ import gnu.trove.map.TIntIntMap;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -167,7 +168,7 @@ public class SpeedTest {
 
         request.accessModes = request.egressModes = request.directModes = EnumSet.of(LegMode.WALK);
         request.maxWalkTime = 20;
-        request.maxTripDurationMinutes = 1200;
+        request.maxTripDurationMinutes = 10080;
         request.transitModes = EnumSet.of(TransitModes.TRAM, TransitModes.SUBWAY, TransitModes.RAIL, TransitModes.BUS);
         request.fromLat = coordPair.fromLat;
         request.fromLon = coordPair.fromLon;
@@ -242,7 +243,7 @@ public class SpeedTest {
 
         accessLeg.distance = (double)accessPath.getDistance();
 
-        itinerary.walkDistance += accessLeg.distance;
+        itinerary.walkDistance += accessLeg.distance / 1000;
 
         itinerary.addLeg(accessLeg);
 
@@ -268,7 +269,7 @@ public class SpeedTest {
 
                 transferLeg.distance = (double)transferPath.getDistance();
 
-                itinerary.walkDistance += transferLeg.distance;
+                itinerary.walkDistance += transferLeg.distance / 1000;
 
                 itinerary.addLeg(transferLeg);
             }
@@ -303,15 +304,17 @@ public class SpeedTest {
 
             List<Coordinate> transitLegCoordinates = new ArrayList<>();
             boolean boarded = false;
+            boolean alighted = false;
             for (int j = 0; j < tripPattern.stops.length; j++) {
-                if (!boarded && tripSchedule.departures[j] == path.boardTimes[i]) {
+                if (!boarded && tripSchedule.departures[j] % 86400 == path.boardTimes[i] % 86400) {
                     boarded = true;
                 }
                 if (boarded) {
                     transitLegCoordinates.add(new Coordinate(transportNetwork.transitLayer.stopForIndex.get(tripPattern.stops[j]).stop_lon,
                             transportNetwork.transitLayer.stopForIndex.get(tripPattern.stops[j]).stop_lat ));
                 }
-                if (boarded && tripSchedule.arrivals[j] == path.alightTimes[i]) {
+                if (boarded && tripSchedule.arrivals[j] % 86400 == path.alightTimes[i] % 86400) {
+                    alighted = true;
                     break;
                 }
             }
@@ -336,11 +339,11 @@ public class SpeedTest {
 
         egressLeg.distance = (double)egressPath.getDistance();
 
-        itinerary.walkDistance += egressLeg.distance;
+        itinerary.walkDistance += egressLeg.distance / 1000;
 
         itinerary.addLeg(egressLeg);
 
-        itinerary.duration = (long) accessTime + (path.alightTimes[path.length - 1] - path.boardTimes[0]) + egressTime;
+        itinerary.duration = Duration.between(accessLeg.startTime.toInstant(), egressLeg.endTime.toInstant()).getSeconds();
         itinerary.startTime = accessLeg.startTime;
         itinerary.endTime = egressLeg.endTime;
 

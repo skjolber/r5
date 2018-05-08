@@ -587,6 +587,25 @@ public class TransitLayer implements Serializable, Cloneable {
         return activeServices;
     }
 
+    public BitSet[] getActiveServicesForDateRange(LocalDate date, int numberOfDays) {
+        BitSet[] bitSets = new BitSet[numberOfDays];
+        for (int i = 0; i < numberOfDays; i++) {
+            bitSets[i] = getActiveServicesForDate(date.plusDays(i));
+        }
+        return bitSets;
+    }
+
+    public BitSet getAggregatedActiveServicesForDateRange(BitSet[] bitSets) {
+        BitSet bitSet = new BitSet();
+        if (bitSets.length > 0) {
+            bitSet = bitSets[0];
+            for (int i = 1; i < bitSets.length; i++) {
+                bitSet.or(bitSets[i]);
+            }
+        }
+        return bitSet;
+    }
+
     // TODO setStreetLayer which automatically links and records the streetLayer ID in a field for use elsewhere?
 
 
