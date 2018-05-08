@@ -79,6 +79,11 @@
                     <include>fares/**</include>
                 </includes>
             </resource>
+            <resource>
+                <directory>src/client</directory>
+                <targetPath>client</targetPath>
+                <filtering>false</filtering>
+            </resource>
         </resources>
 
         <plugins>
