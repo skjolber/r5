@@ -241,9 +241,9 @@ public class SpeedTest {
         accessLeg.mode = "WALK";
         accessLeg.legGeometry = PolylineEncoder.createEncodings(acessCoords);
 
-        accessLeg.distance = (double)accessPath.getDistance();
+        accessLeg.distance = (double)accessPath.getDistance() / 1000.0;
 
-        itinerary.walkDistance += accessLeg.distance / 1000;
+        itinerary.walkDistance += accessLeg.distance / 1000.0;
 
         itinerary.addLeg(accessLeg);
 
@@ -267,9 +267,9 @@ public class SpeedTest {
                 transferLeg.to = new Place(boardStop.stop_lat, boardStop.stop_lon, boardStop.stop_name);
                 transferLeg.legGeometry = PolylineEncoder.createEncodings(transferCoords);
 
-                transferLeg.distance = (double)transferPath.getDistance();
+                transferLeg.distance = (double)transferPath.getDistance() / 1000.0;
 
-                itinerary.walkDistance += transferLeg.distance / 1000;
+                itinerary.walkDistance += transferLeg.distance / 1000.0;
 
                 itinerary.addLeg(transferLeg);
             }
@@ -337,9 +337,9 @@ public class SpeedTest {
         egressLeg.mode = "WALK";
         egressLeg.legGeometry = PolylineEncoder.createEncodings(egressCoords);
 
-        egressLeg.distance = (double)egressPath.getDistance();
+        egressLeg.distance = (double)egressPath.getDistance() / 1000.0;
 
-        itinerary.walkDistance += egressLeg.distance / 1000;
+        itinerary.walkDistance += egressLeg.distance / 1000.0;
 
         itinerary.addLeg(egressLeg);
 
