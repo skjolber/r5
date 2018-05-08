@@ -56,8 +56,7 @@ public class PlannerResource extends RoutingResource {
         try {
             request = super.buildRequest();
 
-            super.numItineraries = 1;
-            TripPlan plan = speedTest.route(request, super.numItineraries != null ? super.numItineraries : 1);
+            TripPlan plan = speedTest.route(request);
             response.setPlan(plan);
         } catch (Exception e) {
             LOG.error(e.getMessage(), e);
