@@ -94,20 +94,11 @@ public class FastRaptorWorker {
     /** The profilerequest describing routing parameters */
     private final ProfileRequest request;
 
-    /** Frequency-based trip patterns running on a given day */
-    private TripPattern[][] runningFrequencyPatterns;
-
     /** Schedule-based trip patterns running on a given day */
     private TripPattern[][] runningScheduledPatterns;
 
-    /** Map from internal, filtered frequency pattern indices back to original pattern indices for frequency patterns */
-    private int[][] originalPatternIndexForFrequencyIndex;
-
     /** Map from internal, filtered pattern indices back to original pattern indices for scheduled patterns */
     private int[][] originalPatternIndexForScheduledIndex;
-
-    /** Array mapping from original pattern indices to the filtered frequency indices */
-    private int[][] frequencyIndexForOriginalPatternIndex;
 
     /** Array mapping from original pattern indices to the filtered scheduled indices */
     private int[][] scheduledIndexForOriginalPatternIndex;
@@ -206,34 +197,22 @@ public class FastRaptorWorker {
 
     /** Prefilter the patterns to only ones that are running */
     private void prefilterPatterns () {
-        runningFrequencyPatterns = new TripPattern[numberOfDays][];
         runningScheduledPatterns = new TripPattern[numberOfDays][];
-        originalPatternIndexForFrequencyIndex = new int[numberOfDays][];
         originalPatternIndexForScheduledIndex = new int[numberOfDays][];
-        frequencyIndexForOriginalPatternIndex = new int[numberOfDays][];
         scheduledIndexForOriginalPatternIndex = new int[numberOfDays][];
 
         for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++) {
-            TIntList frequencyPatterns = new TIntArrayList();
             TIntList scheduledPatterns = new TIntArrayList();
-            frequencyIndexForOriginalPatternIndex[dayIndex] = new int[transit.tripPatterns.size()];
-            Arrays.fill(frequencyIndexForOriginalPatternIndex[dayIndex], -1);
             scheduledIndexForOriginalPatternIndex[dayIndex] = new int[transit.tripPatterns.size()];
             Arrays.fill(scheduledIndexForOriginalPatternIndex[dayIndex], -1);
 
             int patternIndex = -1; // first increment lands at 0
-            int frequencyIndex = 0;
             int scheduledIndex = 0;
             for (TripPattern pattern : transit.tripPatterns) {
                 patternIndex++;
                 RouteInfo routeInfo = transit.routes.get(pattern.routeIndex);
                 TransitModes mode = TransitLayer.getTransitModes(routeInfo.route_type);
                 if (pattern.servicesActive.intersects(servicesActivePerDay[dayIndex]) && request.transitModes.contains(mode)) {
-                    // at least one trip on this pattern is relevant, based on the profile request's date and modes
-                    if (pattern.hasFrequencies) {
-                        frequencyPatterns.add(patternIndex);
-                        frequencyIndexForOriginalPatternIndex[dayIndex][patternIndex] = frequencyIndex++;
-                    }
                     if (pattern.hasSchedules) { // NB not else b/c we still support combined frequency and schedule patterns.
                         scheduledPatterns.add(patternIndex);
                         scheduledIndexForOriginalPatternIndex[dayIndex][patternIndex] = scheduledIndex++;
@@ -241,16 +220,13 @@ public class FastRaptorWorker {
                 }
             }
 
-            originalPatternIndexForFrequencyIndex[dayIndex] = frequencyPatterns.toArray();
             originalPatternIndexForScheduledIndex[dayIndex] = scheduledPatterns.toArray();
 
-            runningFrequencyPatterns[dayIndex] = IntStream.of(originalPatternIndexForFrequencyIndex[dayIndex])
-                    .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
             runningScheduledPatterns[dayIndex] = IntStream.of(originalPatternIndexForScheduledIndex[dayIndex])
                     .mapToObj(transit.tripPatterns::get).toArray(TripPattern[]::new);
 
-            LOG.info("Prefiltering patterns based on date active reduced {} patterns to {} frequency and {} scheduled patterns",
-                    transit.tripPatterns.size(), frequencyPatterns.size(), scheduledPatterns.size());
+            LOG.info("Prefiltering patterns based on date active reduced {} patterns to {} scheduled patterns",
+                    transit.tripPatterns.size(), scheduledPatterns.size());
         }
     }
 
@@ -360,18 +336,16 @@ public class FastRaptorWorker {
 
             BitSet patternsTouched = getPatternsTouchedForStops(inputState, scheduledIndexForOriginalPatternIndex[dayIndex]);
 
+            for (int patternIndex = patternsTouched.nextSetBit(0); patternIndex >= 0; patternIndex = patternsTouched.nextSetBit(patternIndex + 1)) {
 
+                TripSchedule schedule = null;
+                int onTrip = -1;
+                int waitTime = 0;
+                int boardTime = 0;
+                int boardStop = -1;
 
-        for (int patternIndex = patternsTouched.nextSetBit(0); patternIndex >= 0; patternIndex = patternsTouched.nextSetBit(patternIndex + 1)) {
-
-            TripSchedule schedule = null;
-            int onTrip = -1;
-            int waitTime = 0;
-            int boardTime = 0;
-            int boardStop = -1;
-
-            int originalPatternIndex = originalPatternIndexForScheduledIndex[dayIndex][patternIndex];
-            TripPattern pattern = runningScheduledPatterns[dayIndex][patternIndex];
+                int originalPatternIndex = originalPatternIndexForScheduledIndex[dayIndex][patternIndex];
+                TripPattern pattern = runningScheduledPatterns[dayIndex][patternIndex];
 
                 for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
                     int stop = pattern.stops[stopPositionInPattern];
