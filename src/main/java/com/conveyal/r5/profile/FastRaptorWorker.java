@@ -11,12 +11,12 @@ import gnu.trove.map.TIntIntMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 /**
  * RaptorWorker is fast, but FastRaptorWorker is knock-your-socks-off fast, and also more maintainable.
@@ -110,6 +110,8 @@ public class FastRaptorWorker {
 
     private final BitSet[] servicesActivePerDay;
 
+    private boolean[] patternsUsedForRound;
+
     // TODO add javadoc to field
     private final RaptorState[] scheduleState;
 
@@ -120,10 +122,11 @@ public class FastRaptorWorker {
     public List<Path[]> pathsPerIteration;
 
     public FastRaptorWorker (TransitLayer transitLayer, ProfileRequest request, TIntIntMap accessStops) {
-        this.numberOfDays = 4;
+        this.numberOfDays = 7;
         this.transit = transitLayer;
         this.request = request;
         this.accessStops = accessStops;
+        this.patternsUsedForRound = new boolean[transitLayer.tripPatterns.size()];
         this.servicesActivePerDay  = transit.getActiveServicesForDateRange(request.date, numberOfDays);
         this.servicesActive = transit.getAggregatedActiveServicesForDateRange(this.servicesActivePerDay);
         // we add one to request.maxRides, first state is result of initial walk
@@ -332,11 +335,18 @@ public class FastRaptorWorker {
 
     /** Perform a scheduled search */
     private void doScheduledSearchForRound(RaptorState inputState, RaptorState outputState) {
+        Arrays.fill(patternsUsedForRound, false);
+
         for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++) {
 
             BitSet patternsTouched = getPatternsTouchedForStops(inputState, scheduledIndexForOriginalPatternIndex[dayIndex]);
 
             for (int patternIndex = patternsTouched.nextSetBit(0); patternIndex >= 0; patternIndex = patternsTouched.nextSetBit(patternIndex + 1)) {
+
+                int originalPatternIndex = originalPatternIndexForScheduledIndex[dayIndex][patternIndex];
+                if (patternsUsedForRound[originalPatternIndex]) {
+                    continue;
+                }
 
                 TripSchedule schedule = null;
                 int onTrip = -1;
@@ -344,7 +354,7 @@ public class FastRaptorWorker {
                 int boardTime = 0;
                 int boardStop = -1;
 
-                int originalPatternIndex = originalPatternIndexForScheduledIndex[dayIndex][patternIndex];
+
                 TripPattern pattern = runningScheduledPatterns[dayIndex][patternIndex];
 
                 for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
@@ -412,6 +422,7 @@ public class FastRaptorWorker {
                                     boardTime = trip.departures[stopPositionInPattern] + (dayIndex * NUMBER_OF_SECONDS_IN_DAY);
                                     waitTime = boardTime - inputState.bestTimes[stop];
                                     boardStop = stop;
+                                    patternsUsedForRound[originalPatternIndex] = true;
                                 } else {
                                     // this trip arrives too early, break loop since they are sorted by departure time
                                     break;
