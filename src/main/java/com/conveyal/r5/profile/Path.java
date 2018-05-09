@@ -154,6 +154,34 @@ public class Path {
             LOG.error("Transit path computed without a transit segment!");
     }
 
+    public Path(
+            int[] patterns,
+            int[] boardStops,
+            int[] alightStops,
+            int[] alightTimes,
+            int[] trips,
+            int[] boardStopPositions,
+            int[] alightStopPositions,
+            int[] boardTimes,
+            int[] transferTimes
+    ) {
+        this.patterns = patterns;
+        this.boardStops = boardStops;
+        this.alightStops = alightStops;
+        this.alightTimes = alightTimes;
+        this.trips = trips;
+        this.boardStopPositions = boardStopPositions;
+        this.alightStopPositions = alightStopPositions;
+        this.boardTimes = boardTimes;
+        this.transferTimes = transferTimes;
+        this.length = patterns.length;
+
+
+        if (patterns.length == 0) {
+            throw new IllegalStateException("Transit path computed without a transit segment!");
+        }
+    }
+
     // FIXME we are using a map with unorthodox definitions of hashcode and equals to make them serve as map keys.
     // We should instead wrap Path or copy the relevant fields into a PatternSequenceKey class.
 
