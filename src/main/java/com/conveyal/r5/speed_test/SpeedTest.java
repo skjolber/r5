@@ -266,7 +266,7 @@ public class SpeedTest {
     private Itinerary createItinerary(ProfileRequest request, EgressAccessRouter streetRouter, Path path) {
         StreetPath accessPath = streetRouter.accessPath(path.boardStops[0]);
         StreetPath egressPath = streetRouter.egressPath(path.alightStops[path.alightStops.length - 1]);
-        return itineraryMapper.createItinerary(request, path, accessPath, egressPath);
+        return itineraryMapper.createItinerary(request, path, accessPath, egressPath, 7);
     }
 
     private void printError(CsvTestCase tc, long lapTime, Exception e) {
