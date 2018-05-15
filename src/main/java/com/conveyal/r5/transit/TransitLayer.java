@@ -26,6 +26,8 @@ import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TIntIntHashMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
 import com.conveyal.r5.streets.StreetRouter;
+
+import java.time.Duration;
 import java.time.LocalDate;
 
 import gnu.trove.set.TIntSet;
@@ -42,6 +44,8 @@ import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
 import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
+
+import static java.time.temporal.ChronoUnit.DAYS;
 
 
 /**
@@ -583,6 +587,30 @@ public class TransitLayer implements Serializable, Cloneable {
                 activeServices.set(s);
             }
             s++;
+        }
+        return activeServices;
+    }
+
+    // Mark all services that are active in a given date range. Trips on inactive services will not be used in the search.
+    public BitSet[] getActiveServicesForDateRange (LocalDate fromDate, LocalDate toDate) {
+        int nDays = (int)DAYS.between(fromDate, toDate);
+        BitSet[] servicesActivePerDay = new BitSet[nDays];
+        for (int dayIndex = 0; dayIndex < nDays; dayIndex++) {
+            servicesActivePerDay[dayIndex] = new BitSet();
+            for (int serviceIndex = 0; serviceIndex < services.size(); serviceIndex++) {
+                if (services.get(serviceIndex).activeOn(fromDate.plusDays(dayIndex))) {
+                    servicesActivePerDay[dayIndex].set(serviceIndex);
+                }
+            }
+        }
+        return servicesActivePerDay;
+    }
+
+    public BitSet getServicesActiveAggregated (BitSet[] servicesActivePerDay) {
+        int nDays = servicesActivePerDay.length;
+        BitSet activeServices = new BitSet();
+        for (int dayIndex = 0; dayIndex < nDays; dayIndex++) {
+            activeServices.or(servicesActivePerDay[dayIndex]);
         }
         return activeServices;
     }

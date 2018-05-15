@@ -102,6 +102,10 @@ public class MultiCriteriaRangeRaptorWorker {
     /** Services active on the date of the search */
     private final BitSet servicesActive;
 
+    private final int nDays = 4;
+
+    private final BitSet[] servicesActivePerDay;
+
     // TODO add javadoc to field
     private final McRaptorState[] scheduleState;
 
@@ -116,7 +120,8 @@ public class MultiCriteriaRangeRaptorWorker {
         this.request = request;
         this.accessStops = accessStops;
         this.egressStops = egressStops;
-        this.servicesActive  = transit.getActiveServicesForDate(request.date);
+        this.servicesActivePerDay = transitLayer.getActiveServicesForDateRange(request.date, request.date.plusDays(nDays));
+        this.servicesActive  = transit.getServicesActiveAggregated(this.servicesActivePerDay);
         // we add one to request.maxRides, first state is result of initial walk
         this.scheduleState = IntStream.range(0, request.maxRides + 1)
                 .mapToObj((i) -> new McRaptorState(transit.getStopCount(), request.maxTripDurationMinutes * 60))
@@ -325,6 +330,8 @@ public class MultiCriteriaRangeRaptorWorker {
             int boardTime = 0;
             int boardStop = -1;
             TripSchedule schedule = null;
+            BitSet activeDays = getActiveDaysForPattern(pattern);
+            int scheduleDay = 0;
 
             for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
                 int stop = pattern.stops[stopPositionInPattern];
@@ -465,5 +472,17 @@ public class MultiCriteriaRangeRaptorWorker {
         }
 
         return patternsTouched;
+    }
+
+    private BitSet getActiveDaysForPattern(TripPattern pattern) {
+        BitSet activeDays = new BitSet(nDays);
+        for (int serviceIndex = pattern.servicesActive.nextSetBit(0); serviceIndex >= 0; serviceIndex = pattern.servicesActive.nextSetBit(serviceIndex + 1)) {
+            for (int dayIndex = 0; dayIndex < nDays; dayIndex++) {
+                if (servicesActivePerDay[dayIndex].get(serviceIndex)) {
+                    activeDays.set(dayIndex);
+                }
+            }
+        }
+        return activeDays;
     }
 }
