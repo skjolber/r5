@@ -397,7 +397,7 @@ public class MultiCriteriaRangeRaptorWorker {
                             while (--bestTripIdx >= 0) {
                                 TripSchedule trip = null;
                                 trip = pattern.tripSchedules.get(bestTripIdx);
-                                if (trip.departures[stopPositionInPattern] > earliestBoardTime + bestTripDay * NUMBER_OF_SECONDS_IN_DAY) {
+                                if (trip.departures[stopPositionInPattern] + bestTripDay * NUMBER_OF_SECONDS_IN_DAY > earliestBoardTime) {
                                     onTrip = bestTripIdx;
                                     schedule = trip;
                                     scheduleDay = bestTripDay;
