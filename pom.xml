@@ -50,6 +50,25 @@
     <properties>
         <geotools.version>14.0</geotools.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Docker & Fabric8 Configs -->
+        <docker.from>eu.gcr.io/carbon-1287/java-base-image</docker.from>
+        <docker.image>eu.gcr.io/${fabric8.dockerUser}${project.artifactId}:${project.version}</docker.image>
+        <docker.cleanup>none</docker.cleanup>
+        <docker.port.container.jolokia>8778</docker.port.container.jolokia>
+
+        <fabric8.dockerUser>carbon-1287/</fabric8.dockerUser>
+        <fabric8.service.name>r5</fabric8.service.name>
+        <fabric8.service.port>80</fabric8.service.port>
+        <fabric8.service.containerPort>8080</fabric8.service.containerPort>
+
+        <!-- fabric8.env.AB_JOLOKIA_AUTH_OPENSHIFT>true</fabric8.env.AB_JOLOKIA_AUTH_OPENSHIFT -->
+        <fabric8.label.component>${project.artifactId}</fabric8.label.component>
+        <fabric8.label.container>grizzly</fabric8.label.container>
+        <fabric8.label.group>rutebanken</fabric8.label.group>
+        <fabric8.iconRef>spring-boot</fabric8.iconRef>
+        <docker.maven.plugin.version>0.21.0</docker.maven.plugin.version>
+        <fabric8.version>2.3.6</fabric8.version>
     </properties>
 
     <!-- Define where the artifacts produced by this build will be deployed -->
@@ -227,6 +246,69 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+
+            <!--<plugin>-->
+                <!--<groupId>org.apache.maven.plugins</groupId>-->
+                <!--<artifactId>maven-gpg-plugin</artifactId>-->
+                <!--<version>1.5</version>-->
+                <!--<executions>-->
+                    <!--<execution>-->
+                        <!--<id>sign-artifacts</id>-->
+                        <!--&lt;!&ndash; We sign in the verify phase, which means it will happen before install and deploy (the last two phases)-->
+                             <!--but not before earlier phases like test or package. &ndash;&gt;-->
+                        <!--<phase>verify</phase>-->
+                        <!--<goals>-->
+                            <!--<goal>sign</goal>-->
+                        <!--</goals>-->
+                    <!--</execution>-->
+                <!--</executions>-->
+            <!--</plugin>-->
+
+            <plugin>
+                <groupId>io.fabric8</groupId>
+                <artifactId>fabric8-maven-plugin</artifactId>
+                <version>${fabric8.version}</version>
+                <executions>
+                    <execution>
+                        <id>json</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>json</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>attach</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>attach</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>io.fabric8</groupId>
+                <artifactId>docker-maven-plugin</artifactId>
+                <version>${docker.maven.plugin.version}</version>
+                <configuration>
+                    <images>
+                        <image>
+                            <name>${docker.image}</name>
+                            <build>
+                                <from>${docker.from}</from>
+                                <cleanup>${docker.cleanup}</cleanup>
+                                <assembly>
+                                    <basedir>/deployments</basedir>
+                                    <descriptorRef>artifact</descriptorRef>
+                                </assembly>
+                                <env>
+                                    <JAVA_APP_JAR>${project.build.finalName}.jar</JAVA_APP_JAR>
+                                </env>
+                            </build>
+                        </image>
+                    </images>
+                </configuration>
             </plugin>
         </plugins>
     </build>
@@ -454,43 +536,4 @@
             <version>1.8.12</version>
         </dependency>
     </dependencies>
-
-    <profiles>
-        <profile>
-            <id>rutebanken</id>
-            <properties>
-                <fabric8.imagePullPolicySnapshot>Always</fabric8.imagePullPolicySnapshot>
-                <fabric8.recreate>true</fabric8.recreate>
-            </properties>
-            <build>
-                <!-- Missing fabric8:apply, as this crashed (probably due to missing fabric8) -->
-                <defaultGoal>clean install docker:build docker:push fabric8:json</defaultGoal>
-            </build>
-        </profile>
-        <profile>
-            <id>f8-build</id>
-            <build>
-                <defaultGoal>clean install docker:build fabric8:json</defaultGoal>
-            </build>
-        </profile>
-        <profile>
-            <id>f8-deploy</id>
-            <properties>
-                <fabric8.imagePullPolicySnapshot>Always</fabric8.imagePullPolicySnapshot>
-                <fabric8.recreate>true</fabric8.recreate>
-            </properties>
-            <build>
-                <defaultGoal>clean install docker:build docker:push fabric8:json fabric8:apply</defaultGoal>
-            </build>
-        </profile>
-        <profile>
-            <id>f8-local-deploy</id>
-            <properties>
-                <fabric8.recreate>true</fabric8.recreate>
-            </properties>
-            <build>
-                <defaultGoal>clean install docker:build fabric8:json fabric8:apply</defaultGoal>
-            </build>
-        </profile>
-    </profiles>
 </project>
