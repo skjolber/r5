@@ -27,7 +27,7 @@ public class SpeedTestApplication extends Application {
 
     @Override
     public Set<Class<?>> getClasses() {
-        return newHashSet(PlannerResource.class);
+        return newHashSet(PlannerResource.class, HealthResource.class);
     }
 
     @Override
