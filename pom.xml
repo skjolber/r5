@@ -96,6 +96,8 @@
                     <include>worker.sh</include>
                     <include>debug-plan/**</include>
                     <include>fares/**</include>
+                    <include>**/*.csv</include>
+                    <include>**/*.dat</include>
                 </includes>
             </resource>
             <resource>

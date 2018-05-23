@@ -60,7 +60,12 @@ public class SpeedTest {
     private void initTransportNetwork() throws Exception {
         synchronized (NETWORK_DATA_FILE) {
             if (transportNetwork == null) {
-                transportNetwork = TransportNetwork.read(new File(opts.rootDir(), NETWORK_DATA_FILE));
+                File networkFile = new File(opts.rootDir(), NETWORK_DATA_FILE);
+                if (!networkFile.exists()) {
+                    LOG.info("Could not find network file in directory specified. Using file from resources.");
+                    networkFile = new File(getClass().getClassLoader().getResource("speed_test/network.dat").getFile());
+                }
+                transportNetwork = TransportNetwork.read(networkFile);
                 transportNetwork.rebuildTransientIndexes();
                 itineraryMapper = new ItineraryMapper(transportNetwork);
             }
