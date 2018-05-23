@@ -8,6 +8,8 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
 import java.io.File;
+import java.net.MalformedURLException;
+import java.net.URL;
 
 class CommandLineOpts {
     private static final boolean OPTION_UNKNOWN_THEN_FAIL = false;
@@ -15,6 +17,7 @@ class CommandLineOpts {
     private static final String ROOT_DIR_OPT = "d";
     private static final String MULTI_CRITERIA_RR_OPT = "c";
     private static final String HELP_OPT = "h";
+    private static final String DOWNLOAD_URL = "u";
 
     CommandLineOpts(String[] args) {
         Options options = speedTestOptions();
@@ -47,6 +50,7 @@ class CommandLineOpts {
         options.addOption(ROOT_DIR_OPT, "rootDir", true, "Root directory where network and input files are located. (Optional)");
         options.addOption(MULTI_CRITERIA_RR_OPT, "multiCriteria", false, "Use multi criteria version of range raptor. (Optional)");
         options.addOption(HELP_OPT, "help", false, "Print all command line options, then exit. (Optional)");
+        options.addOption(DOWNLOAD_URL, "downloadUrl", true, "Download network file from url. (Optional)");
         return options;
     }
 
@@ -56,6 +60,16 @@ class CommandLineOpts {
             throw new IllegalArgumentException("Unable to find root directory: " + rootDir.getAbsolutePath());
         }
         return rootDir;
+    }
+
+    URL downloadUrl() {
+        URL downloadUrl;
+        try {
+            downloadUrl = new URL(cmd.getOptionValue(DOWNLOAD_URL, null));
+        } catch (MalformedURLException e) {
+            downloadUrl = null;
+        }
+        return downloadUrl;
     }
 
     boolean useMultiCriteriaSearch() {

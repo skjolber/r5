@@ -14,10 +14,13 @@ import com.conveyal.r5.speed_test.api.model.TripPlan;
 import com.conveyal.r5.transit.TransportNetwork;
 import com.conveyal.r5.util.AvgTimer;
 import gnu.trove.iterator.TIntIntIterator;
+import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.net.URL;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -60,7 +63,17 @@ public class SpeedTest {
     private void initTransportNetwork() throws Exception {
         synchronized (NETWORK_DATA_FILE) {
             if (transportNetwork == null) {
-                transportNetwork = TransportNetwork.read(new File(opts.rootDir(), NETWORK_DATA_FILE));
+                File networkFile;
+                URL downloadUrl = this.opts.downloadUrl();
+                if (downloadUrl == null) {
+                    networkFile = new File(opts.rootDir(), NETWORK_DATA_FILE);
+                }
+                else {
+                    networkFile = new File("temp-network.dat");
+                    LOG.info("Downloading file from " + downloadUrl.toString());
+                    IOUtils.copy(downloadUrl.openStream(), new FileOutputStream(networkFile));
+                }
+                transportNetwork = TransportNetwork.read(networkFile);
                 transportNetwork.rebuildTransientIndexes();
                 itineraryMapper = new ItineraryMapper(transportNetwork);
             }
