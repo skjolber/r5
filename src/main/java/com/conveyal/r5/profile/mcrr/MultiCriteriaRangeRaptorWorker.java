@@ -54,6 +54,8 @@ public class MultiCriteriaRangeRaptorWorker {
     /** Minimum slack time to board transit in seconds. */
     public static final int BOARD_SLACK_SECONDS = 60;
 
+    private static final int NUMBER_OF_SECONDS_IN_DAY = 86400;
+
     private static final Logger LOG = LoggerFactory.getLogger(MultiCriteriaRangeRaptorWorker.class);
 
     /**
@@ -102,6 +104,10 @@ public class MultiCriteriaRangeRaptorWorker {
     /** Services active on the date of the search */
     private final BitSet servicesActive;
 
+    private final int nDays = 7;
+
+    private final BitSet[] servicesActivePerDay;
+
     // TODO add javadoc to field
     private final McRaptorState[] scheduleState;
 
@@ -116,7 +122,8 @@ public class MultiCriteriaRangeRaptorWorker {
         this.request = request;
         this.accessStops = accessStops;
         this.egressStops = egressStops;
-        this.servicesActive  = transit.getActiveServicesForDate(request.date);
+        this.servicesActivePerDay = transitLayer.getActiveServicesForDateRange(request.date, request.date.plusDays(nDays));
+        this.servicesActive  = transit.getServicesActiveAggregated(this.servicesActivePerDay);
         // we add one to request.maxRides, first state is result of initial walk
         this.scheduleState = IntStream.range(0, request.maxRides + 1)
                 .mapToObj((i) -> new McRaptorState(transit.getStopCount(), request.maxTripDurationMinutes * 60))
@@ -325,6 +332,8 @@ public class MultiCriteriaRangeRaptorWorker {
             int boardTime = 0;
             int boardStop = -1;
             TripSchedule schedule = null;
+            BitSet activeDays = getActiveDaysForPattern(pattern);
+            int scheduleDay = 0;
 
             for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
                 int stop = pattern.stops[stopPositionInPattern];
@@ -332,7 +341,7 @@ public class MultiCriteriaRangeRaptorWorker {
                 // attempt to alight if we're on board, done above the board search so that we don't check for alighting
                 // when boarding
                 if (onTrip > -1) {
-                    int alightTime = schedule.arrivals[stopPositionInPattern];
+                    int alightTime = schedule.arrivals[stopPositionInPattern] + scheduleDay * NUMBER_OF_SECONDS_IN_DAY;
                     int onVehicleTime = alightTime - boardTime;
 
                     if (waitTime + onVehicleTime + inputState.bestTimes[boardStop] > alightTime) {
@@ -354,46 +363,53 @@ public class MultiCriteriaRangeRaptorWorker {
                     // only attempt to board if the stop was touched
                     if (onTrip == -1) {
                         if (inputState.bestStopsTouched.get(stop)) {
-                            int candidateTripIndex = -1;
                             EARLIEST_TRIP:
-                            for (TripSchedule candidateSchedule : pattern.tripSchedules) {
-                                candidateTripIndex++;
+                            for (int dayIndex = activeDays.nextSetBit(0); dayIndex >= 0; dayIndex = activeDays.nextSetBit(dayIndex + 1) ) {
+                                int candidateTripIndex = -1;
+                                for (TripSchedule candidateSchedule : pattern.tripSchedules) {
+                                    candidateTripIndex++;
 
-                                if (!servicesActive.get(candidateSchedule.serviceCode) || candidateSchedule.headwaySeconds != null) {
-                                    // frequency trip or not running
-                                    continue;
-                                }
+                                    if (!servicesActive.get(candidateSchedule.serviceCode) || candidateSchedule.headwaySeconds != null) {
+                                        // frequency trip or not running
+                                        continue;
+                                    }
 
-                                if (earliestBoardTime < candidateSchedule.departures[stopPositionInPattern]) {
-                                    // board this vehicle
-                                    onTrip = candidateTripIndex;
-                                    schedule = candidateSchedule;
-                                    boardTime = candidateSchedule.departures[stopPositionInPattern];
-                                    waitTime = boardTime - inputState.bestTimes[stop];
-                                    boardStop = stop;
-                                    break EARLIEST_TRIP;
+                                    if (earliestBoardTime < candidateSchedule.departures[stopPositionInPattern] + dayIndex * NUMBER_OF_SECONDS_IN_DAY) {
+                                        // board this vehicle
+                                        onTrip = candidateTripIndex;
+                                        schedule = candidateSchedule;
+                                        scheduleDay = dayIndex;
+                                        boardTime = candidateSchedule.departures[stopPositionInPattern] + dayIndex * NUMBER_OF_SECONDS_IN_DAY;
+                                        waitTime = boardTime - inputState.bestTimes[stop];
+                                        boardStop = stop;
+                                        break EARLIEST_TRIP;
+                                    }
                                 }
                             }
                         }
                     } else {
                         // check if we can back up to an earlier trip due to this stop being reached earlier
                         int bestTripIdx = onTrip;
-                        while (--bestTripIdx >= 0) {
-                            TripSchedule trip = pattern.tripSchedules.get(bestTripIdx);
-                            if (trip.headwaySeconds != null || !servicesActive.get(trip.serviceCode)) {
-                                // This is a frequency trip or it is not running on the day of the search.
-                                continue;
+                        int bestTripDay = scheduleDay;
+                        EARLIEST_TRIP:
+                        while (--bestTripDay >= 0) {
+                            if (!activeDays.get(bestTripDay + 1)) { continue; }
+                            while (--bestTripIdx >= 0) {
+                                TripSchedule trip = null;
+                                trip = pattern.tripSchedules.get(bestTripIdx);
+                                if (trip.departures[stopPositionInPattern] + bestTripDay * NUMBER_OF_SECONDS_IN_DAY > earliestBoardTime) {
+                                    onTrip = bestTripIdx;
+                                    schedule = trip;
+                                    scheduleDay = bestTripDay;
+                                    boardTime = trip.departures[stopPositionInPattern] + bestTripDay * NUMBER_OF_SECONDS_IN_DAY;
+                                    waitTime = boardTime - inputState.bestTimes[stop];
+                                    boardStop = stop;
+                                } else {
+                                    // this trip arrives too early, break loop since they are sorted by departure time
+                                    break EARLIEST_TRIP;
+                                }
                             }
-                            if (trip.departures[stopPositionInPattern] > earliestBoardTime) {
-                                onTrip = bestTripIdx;
-                                schedule = trip;
-                                boardTime = trip.departures[stopPositionInPattern];
-                                waitTime = boardTime - inputState.bestTimes[stop];
-                                boardStop = stop;
-                            } else {
-                                // this trip arrives too early, break loop since they are sorted by departure time
-                                break;
-                            }
+                            bestTripIdx = pattern.tripSchedules.size() - 1;
                         }
                     }
                 }
@@ -465,5 +481,17 @@ public class MultiCriteriaRangeRaptorWorker {
         }
 
         return patternsTouched;
+    }
+
+    private BitSet getActiveDaysForPattern(TripPattern pattern) {
+        BitSet activeDays = new BitSet(nDays);
+        for (int serviceIndex = pattern.servicesActive.nextSetBit(0); serviceIndex >= 0; serviceIndex = pattern.servicesActive.nextSetBit(serviceIndex + 1)) {
+            for (int dayIndex = 0; dayIndex < nDays; dayIndex++) {
+                if (servicesActivePerDay[dayIndex].get(serviceIndex)) {
+                    activeDays.set(dayIndex);
+                }
+            }
+        }
+        return activeDays;
     }
 }

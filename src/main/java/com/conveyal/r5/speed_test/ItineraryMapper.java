@@ -17,10 +17,14 @@ import com.conveyal.r5.transit.TripPattern;
 import com.conveyal.r5.transit.TripSchedule;
 import com.vividsolutions.jts.geom.Coordinate;
 
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -28,11 +32,13 @@ import java.util.stream.Collectors;
 public class ItineraryMapper {
     private TransportNetwork transportNetwork;
 
+    private static int NUMBER_OF_SECONDS_IN_DAY = 86400;
+
     public ItineraryMapper(TransportNetwork transportNetwork) {
         this.transportNetwork = transportNetwork;
     }
 
-    Itinerary createItinerary(ProfileRequest request, Path path, StreetPath accessPath, StreetPath egressPath) {
+    Itinerary createItinerary(ProfileRequest request, Path path, StreetPath accessPath, StreetPath egressPath, int nDays) {
         Itinerary itinerary = new Itinerary();
         if (path == null) {
             return null;
@@ -128,16 +134,19 @@ public class ItineraryMapper {
 
             List<Coordinate> transitLegCoordinates = new ArrayList<>();
             boolean boarded = false;
-            for (int j = 0; j < tripPattern.stops.length; j++) {
-                if (!boarded && tripSchedule.departures[j] == path.boardTimes[i]) {
-                    boarded = true;
-                }
-                if (boarded) {
-                    transitLegCoordinates.add(new Coordinate(transportNetwork.transitLayer.stopForIndex.get(tripPattern.stops[j]).stop_lon,
-                            transportNetwork.transitLayer.stopForIndex.get(tripPattern.stops[j]).stop_lat ));
-                }
-                if (boarded && tripSchedule.arrivals[j] == path.alightTimes[i]) {
-                    break;
+            OUTER_LOOP:
+            for (int dayIndex = 0; dayIndex < nDays; dayIndex++) {
+                for (int j = 0; j < tripPattern.stops.length; j++) {
+                    if (!boarded && (tripSchedule.departures[j] + dayIndex * NUMBER_OF_SECONDS_IN_DAY == path.boardTimes[i])) {
+                        boarded = true;
+                    }
+                    if (boarded) {
+                        transitLegCoordinates.add(new Coordinate(transportNetwork.transitLayer.stopForIndex.get(tripPattern.stops[j]).stop_lon,
+                                transportNetwork.transitLayer.stopForIndex.get(tripPattern.stops[j]).stop_lat ));
+                    }
+                    if (boarded && (tripSchedule.arrivals[j] + dayIndex * NUMBER_OF_SECONDS_IN_DAY == path.alightTimes[i])) {
+                        break OUTER_LOOP;
+                    }
                 }
             }
 

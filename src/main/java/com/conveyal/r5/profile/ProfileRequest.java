@@ -143,7 +143,7 @@ public class ProfileRequest implements Serializable, Cloneable {
     /**
      * The maximum number of rides, e.g. taking the L2 to the Red line to the Green line would be three rides.
      */
-    public int maxRides = 8;
+    public int maxRides = 20;
 
     /** A non-destructive scenario to apply when executing this request */
     public Scenario scenario;
