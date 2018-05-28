@@ -286,7 +286,7 @@ public class MultiCriteriaRangeRaptorWorker {
                         doTransfers(currState)
                 );
 
-                if (currState.bestStopsTouched.isEmpty() && currState.transitStopsTouched.isEmpty()) {
+                if (currState.bestStopsTouched.isEmpty()) {
                     roundsUsed = round;
                     break;
                 }
