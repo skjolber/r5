@@ -397,10 +397,6 @@ public class MultiCriteriaRangeRaptorWorker {
                         int bestTripIdx = onTrip;
                         while (--bestTripIdx >= 0) {
                             TripSchedule trip = pattern.tripSchedules.get(bestTripIdx);
-                            if (trip.headwaySeconds != null || !servicesActive.get(trip.serviceCode)) {
-                                // This is a frequency trip or it is not running on the day of the search.
-                                continue;
-                            }
                             if (trip.departures[stopPositionInPattern] > earliestBoardTime) {
                                 onTrip = bestTripIdx;
                                 schedule = trip;
