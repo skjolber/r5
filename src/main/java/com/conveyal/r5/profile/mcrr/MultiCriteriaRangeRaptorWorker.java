@@ -293,14 +293,6 @@ public class MultiCriteriaRangeRaptorWorker {
             }
         }
 
-        // If there are no frequency trips, return the result of the scheduled search, but repeated as many times
-        // as there are requested MC draws, so that the scheduled search accessibility avoids potential bugs
-        // where assumptions are made about how many results will be returned from a search, e.g., in
-        // https://github.com/conveyal/r5/issues/306
-        // FIXME on large networks with no frequency routes this seems extremely inefficient.
-        // It may be somewhat less inefficient than it seems if we make arrays of references all to the same object.
-        // TODO check whether we're actually hitting this code with iterationsPerMinute > 1 on scheduled networks.
-
         McRaptorState finalRoundState = scheduleState[roundsUsed];
 
         // This scheduleState is repeatedly modified as the outer loop progresses over departure minutes.
