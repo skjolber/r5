@@ -376,11 +376,6 @@ public class MultiCriteriaRangeRaptorWorker {
                             for (TripSchedule candidateSchedule : pattern.tripSchedules) {
                                 candidateTripIndex++;
 
-                                if (!servicesActive.get(candidateSchedule.serviceCode) || candidateSchedule.headwaySeconds != null) {
-                                    // frequency trip or not running
-                                    continue;
-                                }
-
                                 if (earliestBoardTime < candidateSchedule.departures[stopPositionInPattern]) {
                                     // board this vehicle
                                     onTrip = candidateTripIndex;
