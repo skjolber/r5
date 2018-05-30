@@ -307,10 +307,6 @@ public class McRaptorSuboptimalPathProfileRouter {
                         if (prevPattern == -1 && state.back != null) prevPattern = state.back.pattern;
 
                         // don't reexplore trips.
-                        // NB checking and preventing reboarding any pattern that's previously been boarded doesn't save
-                        // a signifiant amount of search time (anecdotally), and forbids some rare but possible optimal routes
-                        // that use the same pattern twice (consider a trip from Shady Grove to Glenmont in DC that cuts
-                        // through Maryland on a bus before reboarding the Glenmont-bound red line).
                         if (prevPattern == patIdx) continue;
 
                         // find a trip, if we can
@@ -359,9 +355,6 @@ public class McRaptorSuboptimalPathProfileRouter {
                     int distanceMillimeters = transfers.get(transfer + 1);
                     int walkTimeSeconds = (int)(distanceMillimeters / walkSpeedMillimetersPerSecond);
                     if (addState(toStop, -1, -1, state.time + walkTimeSeconds, -1, -1, state)) {
-                        String to = network.transitLayer.stopNames.get(transfers.get(transfer));
-                        //LOG.info("Transfer from {} to {} is optimal", from, to);
-
                         stopsTouchedByTransfer.set(toStop);
                     }
                 }
