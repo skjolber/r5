@@ -76,6 +76,8 @@ public class McRaptorState {
     /** Stops touched by transit or transfers */
     public final BitSet bestStopsTouched;
 
+    private final BitSet stopTimesImproved;
+
     /** create a RaptorState for a network with a particular number of stops, and a given maximum duration */
     public McRaptorState(int nStops, int maxDurationSeconds) {
         this.bestTimes = newIntArray(nStops, UNREACHED);
@@ -91,6 +93,7 @@ public class McRaptorState {
         this.transitStopsTouched = new BitSet(nStops);
         this.bestStopsTouched = new BitSet(nStops);
         this.maxDurationSeconds = maxDurationSeconds;
+        this.stopTimesImproved = new BitSet(nStops);
     }
 
 
@@ -99,14 +102,16 @@ public class McRaptorState {
      * Since this is used to progress between rounds, does not copy stopsTouched data.
      */
     public void min(McRaptorState other) {
-        for (int stop = this.bestStopsTouched.nextSetBit(0); stop >= 0; stop = this.bestStopsTouched.nextSetBit(stop + 1)) {
+        for (int stop = other.stopTimesImproved.nextSetBit(0); stop >= 0; stop = other.stopTimesImproved.nextSetBit(stop + 1)) {
             //for (int stop = 0; stop < nStops; stop++) {
             // prefer times from other when breaking tie as other is earlier in RAPTOR search and thus has fewer transfers
             if (other.bestTimes[stop] <= this.bestTimes[stop]) {
+                this.stopTimesImproved.set(stop);
                 this.bestTimes[stop] = other.bestTimes[stop];
                 this.transferStop[stop] = other.transferStop[stop];
             }
             if (other.bestTransitTimes[stop] <= this.bestTransitTimes[stop]) {
+                this.stopTimesImproved.set(stop);
                 this.bestTransitTimes[stop] = other.bestTransitTimes[stop];
                 this.previousPatterns[stop] = other.previousPatterns[stop];
                 this.previousStop[stop] = other.previousStop[stop];
@@ -125,6 +130,7 @@ public class McRaptorState {
         }
 
         if (time < bestTransitTimes[stop]) {
+            stopTimesImproved.set(stop);
             bestTransitTimes[stop] = time;
             transitStopsTouched.set(stop);
             previousPatterns[stop] = fromPattern;
@@ -155,6 +161,7 @@ public class McRaptorState {
         // nonTransferTimes upper bounds bestTimes so we don't need to update wait time and in-vehicle time here, if we
         // enter this conditional it has already been updated.
         if (time < bestTimes[stop]) {
+            stopTimesImproved.set(stop);
             bestTimes[stop] = time;
             bestStopsTouched.set(stop);
             transferStop[stop] = fromStop;
@@ -163,6 +170,7 @@ public class McRaptorState {
     }
 
     public void setInitalTime(int stop, int time) {
+        stopTimesImproved.set(stop);
         bestTimes[stop] = time;
         bestStopsTouched.set(stop);
     }
