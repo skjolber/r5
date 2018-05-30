@@ -257,11 +257,6 @@ public class McRaptorSuboptimalPathProfileRouter {
 
     /** perform one round of the McRAPTOR search. Returns true if anything changed */
     private boolean doOneRound () {
-        // optimization: on the last round, only explore patterns near the destination
-        // in a point to point search
-        if (round == MAX_ROUNDS && egressTimes != null)
-            touchedPatterns.and(patternsNearDestination);
-
         for (int patIdx = touchedPatterns.nextSetBit(0); patIdx >= 0; patIdx = touchedPatterns.nextSetBit(patIdx + 1)) {
             // walk along the route, picking up states as we go
             // We never propagate more than one state from the same previous pattern _sequence_
@@ -273,29 +268,12 @@ public class McRaptorSuboptimalPathProfileRouter {
             Map<StatePatternKey, McRaptorState> statesPerPatternSequence = new HashMap<>();
             TObjectIntMap<StatePatternKey> tripsPerPatternSequence = new TObjectIntHashMap<>();
 
-            // used for frequency trips
-            TObjectIntMap<StatePatternKey> boardTimesPerPatternSequence = new TObjectIntHashMap<>();
-
             TObjectIntMap<StatePatternKey> boardStopsPositionsPerPatternSequence = new TObjectIntHashMap<>();
 
             TripPattern pattern = network.transitLayer.tripPatterns.get(patIdx);
-            RouteInfo routeInfo = network.transitLayer.routes.get(pattern.routeIndex);
-            TransitModes mode = TransitLayer.getTransitModes(routeInfo.route_type);
-            //skips trip patterns with trips which don't run on wanted date
-            if (!pattern.servicesActive.intersects(servicesActive) ||
-                //skips pattern with Transit mode which isn't wanted by profileRequest
-                !request.transitModes.contains(mode)) {
-                continue;
-            }
 
             for (int stopPositionInPattern = 0; stopPositionInPattern < pattern.stops.length; stopPositionInPattern++) {
                 int stop = pattern.stops[stopPositionInPattern];
-                //Skips stops that don't allow wheelchair users if this is wanted in request
-                if (request.wheelchair) {
-                    if (!network.transitLayer.stopsWheelchair.get(stop)) {
-                        continue;
-                    }
-                }
 
                 // perform this check here so we don't needlessly loop over states at a stop that are all created by
                 // getting off this pattern.
@@ -311,12 +289,7 @@ public class McRaptorSuboptimalPathProfileRouter {
                     int arrival;
 
                     // we know we have no mixed schedule/frequency patterns, see check on boarding
-                    if (sched.headwaySeconds != null) {
-                        int travelTimeToStop = sched.arrivals[stopPositionInPattern] - sched.departures[boardStopPositionInPattern];
-                        arrival = boardTimesPerPatternSequence.get(e.getKey()) + travelTimeToStop;
-                    } else {
-                        arrival = sched.arrivals[stopPositionInPattern];
-                    }
+                    arrival = sched.arrivals[stopPositionInPattern];
 
                     if (addState(stop, boardStopPositionInPattern, stopPositionInPattern, arrival, patIdx, trip, e.getValue()))
                         touchedStops.set(stop);
@@ -340,74 +313,25 @@ public class McRaptorSuboptimalPathProfileRouter {
                         // through Maryland on a bus before reboarding the Glenmont-bound red line).
                         if (prevPattern == patIdx) continue;
 
-                        if (pattern.hasFrequencies && pattern.hasSchedules) {
-                            throw new IllegalStateException("McRAPTOR router does not support frequencies and schedules in the same trip pattern!");
-                        }
-
                         // find a trip, if we can
                         int currentTrip = -1; // first increment lands at zero
 
                         StatePatternKey spk = new StatePatternKey(state);
 
-                        if (pattern.hasSchedules) {
-                            for (TripSchedule tripSchedule : pattern.tripSchedules) {
-                                currentTrip++;
-                                //Skips trips which don't run on wanted date
-                                if (!servicesActive.get(tripSchedule.serviceCode) ||
-                                    //Skip trips that can't be used with wheelchairs when wheelchair trip is requested
-                                    (request.wheelchair && !tripSchedule.getFlag(TripFlag.WHEELCHAIR))) {
-                                    continue;
+                        for (TripSchedule tripSchedule : pattern.tripSchedules) {
+                            currentTrip++;
+
+                            int departure = tripSchedule.departures[stopPositionInPattern];
+                            if (departure > state.time + BOARD_SLACK) {
+                                if (!statesPerPatternSequence.containsKey(spk) || tripsPerPatternSequence.get(spk) > currentTrip) {
+                                    statesPerPatternSequence.put(spk, state);
+                                    tripsPerPatternSequence.put(spk, currentTrip);
+                                    boardStopsPositionsPerPatternSequence.put(spk, stopPositionInPattern);
                                 }
 
-                                int departure = tripSchedule.departures[stopPositionInPattern];
-                                if (departure > state.time + BOARD_SLACK) {
-                                    if (!statesPerPatternSequence.containsKey(spk) || tripsPerPatternSequence.get(spk) > currentTrip) {
-                                        statesPerPatternSequence.put(spk, state);
-                                        tripsPerPatternSequence.put(spk, currentTrip);
-                                        boardTimesPerPatternSequence.put(spk, departure);
-                                        boardStopsPositionsPerPatternSequence.put(spk, stopPositionInPattern);
-                                    }
-
-                                    // we found the best trip we can board at this stop, break loop regardless of whether
-                                    // we decided to board it or continue on a trip coming from a previous stop.
-                                    break;
-                                }
-                            }
-                        } else if (pattern.hasFrequencies) {
-                            for (TripSchedule tripSchedule : pattern.tripSchedules) {
-                                currentTrip++;
-                                if (!servicesActive.get(tripSchedule.serviceCode) ||
-                                    //Skip trips that can't be used with wheelchairs when wheelchair trip is requested
-                                    (request.wheelchair && !tripSchedule.getFlag(TripFlag.WHEELCHAIR))) {
-                                    continue;
-                                }
-
-                                int earliestPossibleBoardTime = state.time + BOARD_SLACK;
-
-                                // find a departure on this trip
-                                for (int frequencyEntry = 0; frequencyEntry < tripSchedule.startTimes.length; frequencyEntry++) {
-                                    int departure = tripSchedule.startTimes[frequencyEntry] +
-                                            offsets.offsets.get(patIdx)[currentTrip][frequencyEntry] +
-                                            tripSchedule.departures[stopPositionInPattern];
-
-                                    int latestDeparture = tripSchedule.endTimes[frequencyEntry] +
-                                            tripSchedule.departures[stopPositionInPattern];
-
-                                    if (earliestPossibleBoardTime > latestDeparture) continue; // we're outside the time window
-
-                                    while (departure < earliestPossibleBoardTime) departure += tripSchedule.headwaySeconds[frequencyEntry];
-
-                                    // check again, because depending on the offset, the latest possible departure based
-                                    // on end time may not actually occur
-                                    if (departure > latestDeparture) continue;
-
-                                    if (!statesPerPatternSequence.containsKey(spk) || boardTimesPerPatternSequence.get(spk) > departure) {
-                                        statesPerPatternSequence.put(spk, state);
-                                        tripsPerPatternSequence.put(spk, currentTrip);
-                                        boardTimesPerPatternSequence.put(spk, departure);
-                                        boardStopsPositionsPerPatternSequence.put(spk, stopPositionInPattern);
-                                    }
-                                }
+                                // we found the best trip we can board at this stop, break loop regardless of whether
+                                // we decided to board it or continue on a trip coming from a previous stop.
+                                break;
                             }
                         }
                     }
