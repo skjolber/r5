@@ -36,8 +36,9 @@ public final class McRaptorState {
 
     public static final int NOT_SET = -1;
 
-    private final StopStateFlyWeight state;
+    private final StopStateFlyWeight[] state;
     private final int nRounds;
+    private final int paretoSize;
 
     private int round = 0;
     private int roundMax = -1;
@@ -58,16 +59,18 @@ public final class McRaptorState {
     private final int[][] stateStopIndex;
 
     /** The best times to reach each stop, whether via a transfer or via transit directly. */
-    private final BestTimes bestOveral;
+    private final BestTimes[] bestOveral;
 
     /** Index to the best times for reaching stops via transit rather than via a transfer from another stop */
-    private final BestTimes bestTransit;
+    private final BestTimes[] bestTransit;
 
 
     /** create a RaptorState for a network with a particular number of stops, and a given maximum duration */
-    McRaptorState(int nStops, int nRounds, int maxDurationSeconds, int earliestDepartureTime) {
+    McRaptorState(int nStops, int nRounds, int maxDurationSeconds, int earliestDepartureTime, int paretoSize) {
         this.nRounds = nRounds;
-        this.state = new StopStateFlyWeight(nStops * 3);
+        this.state = new StopStateFlyWeight[paretoSize];
+        Arrays.fill(this.state, new StopStateFlyWeight(nStops * 3));
+        this.paretoSize = paretoSize;
 
         this.stateStopIndex = new int[nRounds][nStops];
 
@@ -79,8 +82,10 @@ public final class McRaptorState {
     }
 
     void gotoNextRound() {
-        bestOveral.gotoNextRound();
-        bestTransit.gotoNextRound();
+        for (int i = 0; i < paretoSize; i++) {
+            bestOveral[i].gotoNextRound();
+            bestTransit[i].gotoNextRound();
+        }
         ++round;
         roundMax = Math.max(roundMax, round);
     }
@@ -155,12 +160,12 @@ public final class McRaptorState {
     }
 
     StopState stop(int stop) {
-        state.setCursor(stopIndex(stop));
+        state.setStopCursor(stopIndex(stop));
         return state;
     }
 
     StopState stopPreviousRound(int stop) {
-        state.setCursor(stateStopIndex[round-1][stop]);
+        state.setStopCursor(stateStopIndex[round-1][stop]);
         return state;
     }
 

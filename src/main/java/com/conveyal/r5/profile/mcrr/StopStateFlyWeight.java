@@ -9,7 +9,7 @@ import static com.conveyal.r5.profile.mcrr.TimeUtils.timeToString;
 public final class StopStateFlyWeight implements StopState {
 
     private int size = 0;
-    private int cursor = NOT_SET;
+    private int stopCursor = NOT_SET;
 
     private final int[] times;
     private final int[] transitTimes;
@@ -60,13 +60,13 @@ public final class StopStateFlyWeight implements StopState {
         times[index] = time;
     }
 
-    public void setCursor(int cursor) {
-        this.cursor = cursor;
+    public void setStopCursor(int stopCursor) {
+        this.stopCursor = stopCursor;
     }
 
     @Override
     public final int time() {
-        return times[cursor];
+        return times[stopCursor];
     }
 
     public final int time(int index) {
@@ -74,47 +74,47 @@ public final class StopStateFlyWeight implements StopState {
     }
     @Override
     public int transitTime() {
-        return transitTimes[cursor];
+        return transitTimes[stopCursor];
     }
 
     @Override
     public boolean isTransitTimeSet() {
-        return transitTimes[cursor] != McRaptorState.UNREACHED;
+        return transitTimes[stopCursor] != McRaptorState.UNREACHED;
     }
 
     @Override
     public int previousPattern() {
-        return previousPatterns[cursor];
+        return previousPatterns[stopCursor];
     }
 
     @Override
     public int previousTrip() {
-        return previousTrips[cursor];
+        return previousTrips[stopCursor];
     }
 
     @Override
     public int transferTime() {
-        return transferTimes[cursor];
+        return transferTimes[stopCursor];
     }
 
     @Override
     public int boardStop() {
-        return boardStops[cursor];
+        return boardStops[stopCursor];
     }
 
     @Override
     public int boardTime() {
-        return boardTimes[cursor];
+        return boardTimes[stopCursor];
     }
 
     @Override
     public int transferFromStop() {
-        return transferFromStops[cursor];
+        return transferFromStops[stopCursor];
     }
 
     @Override
     public boolean arrivedByTransfer() {
-        return transferFromStops[cursor] != NOT_SET;
+        return transferFromStops[stopCursor] != NOT_SET;
     }
 
     public int nextAvailable() {
