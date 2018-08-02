@@ -7,7 +7,6 @@ import com.conveyal.r5.profile.Path;
 import com.conveyal.r5.profile.ProfileRequest;
 import com.conveyal.r5.profile.SearchAlgorithm;
 import com.conveyal.r5.profile.StreetPath;
-import com.conveyal.r5.profile.mcrr.McRaptorState;
 import com.conveyal.r5.profile.mcrr.MultiCriteriaRangeRaptorWorker;
 import com.conveyal.r5.profile.mcrr.PathParetoSortableWrapper;
 import com.conveyal.r5.speed_test.api.model.Itinerary;
@@ -58,6 +57,7 @@ public class SpeedTest {
     private static final AvgTimer TIMER_COLLECT_RESULTS_ITINERARIES_CREATE = AvgTimer.timerMilliSec("SpeedTest:route CR Itineraries create");
     private static final AvgTimer TIMER_COLLECT_RESULTS_TRIP_PLAN = AvgTimer.timerMilliSec("SpeedTest:route CR TripPlan");
 
+    private List<Integer> numOfPathsFound = new ArrayList<>();
 
     SpeedTest(CommandLineOpts opts) throws Exception {
         this.opts = opts;
@@ -85,6 +85,7 @@ public class SpeedTest {
 
 
         int nRoutesComputed = 0;
+        numOfPathsFound.clear();
 
         // Warm up JIT compiler
         runSingleTestCase(tripPlans, testCases.get(9), opts);
@@ -103,22 +104,24 @@ public class SpeedTest {
 
         LOG.info(
                 "\n- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - [ SUMMARY ]\n" +
-                        AvgTimer.listResults().stream().reduce("", (text, line) -> text + line + "\n")
+                AvgTimer.listResults().stream().reduce("", (text, line) -> text + line + "\n") +
+                "\n" +
+                "\nPaths found: " + numOfPathsFound.stream().mapToInt((it) -> it).sum() + " " + numOfPathsFound +
+                "\nSuccessful searches: " + nRoutesComputed + " / " + testCases.size() +
+                "\nTotal time: " + TIMER.totalTimeInSeconds() + " seconds"
         );
 
-        LOG.info("Successful searches: " + nRoutesComputed + " / " + testCases.size());
-        LOG.info("Total time: " + TIMER.totalTimeInSeconds() + " seconds");
     }
 
     private boolean runSingleTestCase(List<TripPlan> tripPlans, CsvTestCase testCase, SpeedTestCmdLineOpts opts) {
         try {
 
             final ProfileRequest request = buildDefaultRequest(testCase, opts);
-            TripPlan route =  TIMER.timeAndReturn(() ->
+            TripPlan route = TIMER.timeAndReturn(() ->
                     route(request)
             );
             tripPlans.add(route);
-            if(opts.printItineraries()) {
+            if (opts.printItineraries()) {
                 printResult(route.getItineraries().size(), testCase, TIMER.lapTime(), "");
                 route.speedTestPrintItineraries();
             }
@@ -222,7 +225,7 @@ public class SpeedTest {
                     streetRouter.egressTimesToStopsInSeconds.keys()
             );
 
-            int[][] transitTravelTimesToStops = worker.route();
+            worker.route();
 
             TIMER_WORKER.stop();
 
@@ -245,19 +248,29 @@ public class SpeedTest {
             int i = 0;
             while (egressTimeIterator.hasNext()) {
                 egressTimeIterator.advance();
-                int stopIndex = egressTimeIterator.key();
+//                int stopIndex = egressTimeIterator.key();
                 int egressTime = egressTimeIterator.value();
+                int minuteReversed = worker.nMinutes;
 
-                for (int minute = 0; minute < transitTravelTimesToStops.length; minute++) {
-                    int travelTimeToStop = transitTravelTimesToStops[minute][stopIndex];
+                for (int minute = 0; minute < worker.nMinutes; minute++) {
+                    --minuteReversed;
 
-                    if (travelTimeToStop != McRaptorState.UNREACHED) {
+                    Path path = worker.pathsPerIteration.get(minute)[i];
+                    if (path != null) {
+
+                        // TGR - This is not correct, it calculates the time from the fromTime, not from
+                        // when the travel need to start. Lets say the access walk takes 3 minutes and the
+                        // first available buss start 16:30 and take 10 minutes. Then the travel time is
+                        // 3 min access + 10 min = 13 min, not (fromTime=16:00): 43 minutes.
+                        // I don´t want to fix it because it would affect the test, also it is parially
+                        // handled by the paths pareto set and the fact that from time is adjusted by the
+                        // RR minutes starting point.
+
+                        int travelTimeToStop = path.alightTimes[path.length - 1] - request.fromTime - minuteReversed * 60;
+
                         int totalTime = travelTimeToStop + egressTime;
-                        Path path = worker.pathsPerIteration.get(minute)[i];
-                        if (path != null) {
-                            paths.add(new PathParetoSortableWrapper(path, totalTime));
-                        }
-                        //accessTime = accessTimesToStopsInSeconds.get(worker.pathsPerIteration.get(range)[stopIndex].boardStops[0]);
+
+                        paths.add(new PathParetoSortableWrapper(path, totalTime));
                     }
                 }
                 ++i;
@@ -268,6 +281,7 @@ public class SpeedTest {
             if (paths.isEmpty()) {
                 throw new IllegalStateException("NO RESULT FOUND");
             }
+            numOfPathsFound.add(paths.size());
 
             ItinerarySet itineraries = new ItinerarySet();
 

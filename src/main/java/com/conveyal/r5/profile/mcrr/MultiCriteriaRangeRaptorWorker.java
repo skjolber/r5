@@ -54,10 +54,6 @@ public class MultiCriteriaRangeRaptorWorker {
      */
     public static final int UNREACHED = Integer.MAX_VALUE;
 
-    /** Minimum slack time to board transit in seconds. */
-    public static final int BOARD_SLACK_SECONDS = 60;
-
-
     /**
      * Step for departure times. Use caution when changing this as we use the functions
      * request.getTimeWindowLengthMinutes and request.getMonteCarloDrawsPerMinute below which assume this value is 1 minute.
@@ -68,13 +64,13 @@ public class MultiCriteriaRangeRaptorWorker {
 
     /** Minimum wait for boarding to account for schedule variation */
     private static final int MINIMUM_BOARD_WAIT_SEC = 60;
-    private final int nMinutes;
+
+    public final int nMinutes;
 
     // Variables to track time spent
     private static final AvgTimer TIMER_ROUTE = AvgTimer.timerMilliSec("McRRaptor:route");
     private static final AvgTimer TIMER_ROUTE_SETUP = AvgTimer.timerMilliSec("McRRaptor:route Init");
     private static final AvgTimer TIMER_ROUTE_BY_MINUTE = AvgTimer.timerMilliSec("McRRaptor:route Run Raptor For Minute");
-    private static final AvgTimer TIMER_ROUTE_RESULT = AvgTimer.timerMilliSec("McRRaptor:route Result");
     private static final AvgTimer TIMER_BY_MINUTE_INIT = AvgTimer.timerMilliSec("McRRaptor:runRaptorForMinute Init");
     private static final AvgTimer TIMER_BY_MINUTE_SCHEDULE_SEARCH = AvgTimer.timerMicroSec("McRRaptor:runRaptorForMinute Schedule Search");
     private static final AvgTimer TIMER_BY_MINUTE_TRANSFERS = AvgTimer.timerMicroSec("McRRaptor:runRaptorForMinute Transfers");
@@ -129,45 +125,30 @@ public class MultiCriteriaRangeRaptorWorker {
      * For each iteration (minute + MC draw combination), return the minimum travel time to each transit stop in seconds.
      * Return value dimension order is [searchIteration][transitStopIndex]
      */
-    public int[][] route () {
+    public void route () {
 
         //LOG.info("Performing {} rounds (minutes)",  nMinutes);
 
-        return TIMER_ROUTE.timeAndReturn(() -> {
+        TIMER_ROUTE.time(() -> {
             TIMER_ROUTE_SETUP.time(this::prefilterPatterns);
-
-            // Initialize result storage.
-            // Results are one arrival time at each stop, for every raptor iteration.
-            int[][] arrivalTimesAtStopsPerIteration = new int[nMinutes][];
 
             pathsPerIteration = new ArrayList<>();
 
-            int currentIteration = 0;
 
             // The main outer loop iterates backward over all minutes in the departure times window.
             for (int departureTime = request.toTime - DEPARTURE_STEP_SEC, minute = nMinutes;
                  departureTime >= request.fromTime;
                  departureTime -= DEPARTURE_STEP_SEC, minute--) {
 
+                int finalDepartureTime = departureTime;
+
                 // Run the raptor search. For this particular departure time, we receive N arrays of arrival times at all
                 // stops, one for each randomized schedule: resultsForMinute[randScheduleNumber][transitStop]
-                TIMER_ROUTE_BY_MINUTE.start();
-                int[] resultsForMinute = runRaptorForMinute(departureTime);
-                TIMER_ROUTE_BY_MINUTE.stop();
 
-                // Bypass Java's "effectively final" nonsense.
-                final int finalDepartureTime = departureTime;
-                final int _currentIteration = currentIteration;
-
-                // NB this copies the array, so we don't have issues with it being updated later
-                TIMER_ROUTE_RESULT.time(() ->
-                    arrivalTimesAtStopsPerIteration[_currentIteration] = IntStream.of(resultsForMinute)
-                            .map(r -> r != McRaptorState.UNREACHED ? r - finalDepartureTime : r)
-                            .toArray()
+                TIMER_ROUTE_BY_MINUTE.time(() ->
+                    runRaptorForMinute(finalDepartureTime)
                 );
-                ++currentIteration;
             }
-            return arrivalTimesAtStopsPerIteration;
         });
     }
 
@@ -225,7 +206,7 @@ public class MultiCriteriaRangeRaptorWorker {
      * @param departureTime When this search departs.
      * @return an array of length iterationsPerMinute, containing the arrival (clock) times at each stop for each iteration.
      */
-    private int[] runRaptorForMinute (int departureTime) {
+    private void runRaptorForMinute (int departureTime) {
         McRaptorState.debugStopHeader("runRaptorForMin "+departureTime);
 
         TIMER_BY_MINUTE_INIT.time(() ->
@@ -254,8 +235,6 @@ public class MultiCriteriaRangeRaptorWorker {
         // We have to be careful here that creating these paths does not modify the state, and makes
         // protective copies of any information we want to retain.
         pathsPerIteration.add(pathToEachStop());
-
-        return state.bestTransitTimes();
     }
 
 
