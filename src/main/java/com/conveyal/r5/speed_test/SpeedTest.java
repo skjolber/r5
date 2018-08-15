@@ -262,7 +262,7 @@ public class SpeedTest {
                     streetRouter.accessTimesToStopsInSeconds,
                     streetRouter.egressTimesToStopsInSeconds.keys()
             );
-            Collection<Path> mpaths = worker.route();
+            Collection<Path> workerPaths = worker.route();
 
             TIMER_WORKER.stop();
 
@@ -279,7 +279,7 @@ public class SpeedTest {
             ParetoSet<PathParetoSortableWrapper> paths = new ParetoSet<>(PathParetoSortableWrapper.paretoDominanceFunctions());
 
 
-            for (Path path : mpaths) {
+            for (Path path : workerPaths) {
                 int egressTransferTime = streetRouter.egressTimesToStopsInSeconds.get(path.egressStop());
                 int accessTransferTime = streetRouter.accessTimesToStopsInSeconds.get(path.accessStop());
                 int totalTime = accessTransferTime + path.travelTime() + egressTransferTime;

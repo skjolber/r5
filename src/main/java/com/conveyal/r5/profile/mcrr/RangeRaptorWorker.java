@@ -130,14 +130,12 @@ public class RangeRaptorWorker {
                  departureTime >= fromTimeSeconds;
                  departureTime -= DEPARTURE_STEP_SEC, minute--) {
 
-                int finalDepartureTime = departureTime;
-
                 // Run the raptor search. For this particular departure time, we receive N arrays of arrival times at all
                 // stops, one for each randomized schedule: resultsForMinute[randScheduleNumber][transitStop]
 
-                TIMER_ROUTE_BY_MINUTE.time(() ->
-                    runRaptorForMinute(finalDepartureTime)
-                );
+                TIMER_ROUTE_BY_MINUTE.start();
+                runRaptorForMinute(departureTime);
+                TIMER_ROUTE_BY_MINUTE.stop();
             }
         });
         return paths;
