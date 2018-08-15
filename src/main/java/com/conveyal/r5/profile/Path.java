@@ -75,8 +75,7 @@ public class Path {
             if (state.transferStop[stop] != -1) {
                 transferTimes.add(state.transferTimes[stop]);
                 stop = state.transferStop[stop];
-            }
-            else {
+            } else {
                 transferTimes.add(-1);
             }
         }
@@ -98,11 +97,11 @@ public class Path {
         this.boardTimes = boardTimes.toArray();
         this.trips = trips.toArray();
         this.transferTimes = transferTimes.toArray();
-
         this.length = this.patterns.length;
 
-        if (this.patterns.length == 0)
-            LOG.error("Transit path computed without a transit segment!");
+        if (length == 0) {
+            throw new IllegalStateException("Transit path computed without a transit segment!");
+        }
     }
 
     /**
@@ -150,8 +149,9 @@ public class Path {
         this.alightStopPositions = alightStopPositions.toArray();
         this.length = this.patterns.length;
 
-        if (this.patterns.length == 0)
-            LOG.error("Transit path computed without a transit segment!");
+        if (this.patterns.length == 0) {
+            throw new IllegalStateException("Transit path computed without a transit segment!");
+        }
     }
 
     public Path(
@@ -176,34 +176,82 @@ public class Path {
         this.transferTimes = transferTimes;
         this.length = patterns.length;
 
-
         if (patterns.length == 0) {
             throw new IllegalStateException("Transit path computed without a transit segment!");
         }
     }
 
-    // FIXME we are using a map with unorthodox definitions of hashcode and equals to make them serve as map keys.
-    // We should instead wrap Path or copy the relevant fields into a PatternSequenceKey class.
-
+    /**
+     * @see #equals(Object)
+     */
     public int hashCode() {
-        return Arrays.hashCode(patterns);
+        return length +
+                31 * Arrays.hashCode(boardTimes) +
+                317 * Arrays.hashCode(boardStops) +
+                3117 * Arrays.hashCode(patterns) +
+                31117 * Arrays.hashCode(alightStops);
     }
 
+    /**
+     * We need to include boardTimes, patterns, boardStops and alightStops to get unique paths.
+     * It might be tempting to skip one of these, but you can not. A bus and a tram may visit
+     * the same two stops at the same time - pattern is the only thing that differ. Likewise
+     * two stops may be so close that the alight/board time is the same for a given route;
+     * hence we must include both boardStops and alightStops. Finally, all board times
+     * must be included, to include all diffrent variations of trips of the same pattern.
+     */
     public boolean equals(Object o) {
-        if (o instanceof Path) {
-            Path p = (Path) o;
-            return this == p || Arrays.equals(patterns, p.patterns);
-        } else return false;
+        if (o == null) return false;
+        if (o == this) return true;
+        if (!(o instanceof Path)) return false;
+
+        Path p = (Path) o;
+        return Arrays.equals(boardTimes, p.boardTimes) &&
+                Arrays.equals(boardStops, p.boardStops) &&
+                Arrays.equals(patterns, p.patterns) &&
+                Arrays.equals(alightStops, p.alightStops)
+                ;
+    }
+
+    public String toString(int accessTransferTime, int egressTransferTime) {
+        StringBuilder s = new StringBuilder();
+        for (int i = 0; i < length; i++) {
+            if (i != 0) s.append("  >>  ");
+            s.append(String.format(
+                    "%s - %s %6s %5d > %5d",
+                    toTime(boardTimes[i] - accessTransferTime),
+                    toTime(alightTimes[i] + egressTransferTime),
+                    "#" + patterns[i],
+                    boardStops[i],
+                    alightStops[i])
+            );
+        }
+        return s.toString();
     }
 
     /**
      * Gets tripPattern at provided pathIndex
-     * @param transitLayer
-     * @param pathIndex
-     * @return
      */
     public TripPattern getPattern(TransitLayer transitLayer, int pathIndex) {
         return transitLayer.tripPatterns.get(this.patterns[pathIndex]);
     }
 
+    public int egressStop() {
+        return alightStops[length - 1];
+    }
+
+    public int accessStop() {
+        return boardStops[0];
+    }
+
+    public int travelTime() {
+        return alightTimes[length - 1] - boardTimes[0];
+    }
+
+    private static String toTime(int time) {
+        time /= 60;
+        int min = time % 60;
+        int hour = time / 60;
+        return String.format("%02d:%02d", hour, min);
+    }
 }
