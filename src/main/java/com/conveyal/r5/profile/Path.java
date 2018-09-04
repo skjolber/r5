@@ -9,6 +9,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 
+import static java.lang.Integer.MAX_VALUE;
+
 /**
  * Class used to represent transit paths in Browsochrones and Modeify.
  */
@@ -213,20 +215,26 @@ public class Path {
                 ;
     }
 
-    public String toString(int accessTransferTime, int egressTransferTime) {
-        StringBuilder s = new StringBuilder();
-        for (int i = 0; i < length; i++) {
-            if (i != 0) s.append("  >>  ");
-            s.append(String.format(
-                    "%s - %s %6s %5d > %5d",
-                    toTime(boardTimes[i] - accessTransferTime),
-                    toTime(alightTimes[i] + egressTransferTime),
-                    "#" + patterns[i],
-                    boardStops[i],
-                    alightStops[i])
-            );
+    @Override
+    public String toString() {
+        return "Path:\n" +
+                "\tboard stop:    " + toString(boardStops) + "\n" +
+                "\tboard times:   " + toString(boardTimes) + "\n" +
+                "\talight stops:  " + toString(alightStops) + "\n" +
+                "\talight times:  " + toString(alightTimes) + "\n" +
+                "\ttrips:         " + toString(trips) + "\n" +
+                "\tpatterns:      " + toString(patterns) + "\n" +
+                "\ttransferTimes: " + toString(transferTimes) + "\n";
+    }
+
+    private static String toString(int[] array) {
+        if(array.length == 0) return "";
+
+        StringBuilder buf = new StringBuilder();
+        for (int v : array) {
+            buf.append(", ").append(String.format("%5s", intToString(v)));
         }
-        return s.toString();
+        return buf.substring(2);
     }
 
     /**
@@ -248,10 +256,7 @@ public class Path {
         return alightTimes[length - 1] - boardTimes[0];
     }
 
-    private static String toTime(int time) {
-        time /= 60;
-        int min = time % 60;
-        int hour = time / 60;
-        return String.format("%02d:%02d", hour, min);
+    private static String intToString(int v) {
+        return v == -1 ? "ø" : (v == MAX_VALUE ? "Ø" : Integer.toString(v));
     }
 }
