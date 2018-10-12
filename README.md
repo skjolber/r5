@@ -1,4 +1,4 @@
-# R<sup>5</sup>: Rapid Realistic Routing on Real-world and Reimagined networks
+# R<sup>5</sup>: Rapid Realistic Routing on Real-world and Reimagined networks [![CircleCI](https://circleci.com/gh/entur/r5/tree/master.svg?style=svg)](https://circleci.com/gh/entur/r5/tree/master)
 
 R<sup>5</sup> is a fast routing engine for multimodal (transit/bike/walk/car) networks. It is currently designed
 for analytic applications but there are plans to eventually have it support point-to-point journey planning.
