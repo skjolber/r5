@@ -73,11 +73,9 @@
 
     <!-- Define where the artifacts produced by this build will be deployed -->
     <distributionManagement>
-        <!-- We are using Sonatype Nexus Staging instead of Maven Release plugin.
-             Only a snapshot repo should be configured. Releases are done from that snapshot staging repo. -->
         <snapshotRepository>
-            <id>ossrh</id>
-            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+            <id>Nexus</id>
+            <url>https://nexus.rutebanken.org/content/repositories/snapshots</url>
         </snapshotRepository>
     </distributionManagement>
 
@@ -186,20 +184,6 @@
                         </configuration>
                     </execution>
                 </executions>
-            </plugin>
-
-            <plugin>
-                <!-- Recommended way to deploy to OSSRH -->
-                <groupId>org.sonatype.plugins</groupId>
-                <artifactId>nexus-staging-maven-plugin</artifactId>
-                <version>1.6.7</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <serverId>ossrh</serverId>
-                    <nexusUrl>https://oss.sonatype.org/</nexusUrl>
-                    <!-- Release versions will be synced to Maven Central automatically. -->
-                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
-                </configuration>
             </plugin>
 
             <plugin>
