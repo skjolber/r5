@@ -1,7 +1,7 @@
 package com.conveyal.r5.speed_test;
 
-import com.conveyal.r5.profile.entur.util.ParetoDominanceFunctions;
-import com.conveyal.r5.profile.entur.util.ParetoSortable;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoDominanceFunctions;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoSortable;
 import com.conveyal.r5.profile.entur.util.TimeUtils;
 import com.conveyal.r5.speed_test.api.model.Itinerary;
 import com.conveyal.r5.speed_test.api.model.Leg;
@@ -9,7 +9,7 @@ import com.conveyal.r5.speed_test.api.model.Leg;
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.conveyal.r5.profile.entur.util.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
+import static com.conveyal.r5.profile.entur.util.paretoset.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
 import static com.conveyal.r5.profile.entur.util.TimeUtils.timeToStrCompact;
 import static com.conveyal.r5.profile.entur.util.TimeUtils.timeToStrShort;
 
@@ -60,8 +60,25 @@ public class SpeedTestItinerary extends Itinerary implements ParetoSortable {
     }
 
     @Override
-    public int[] paretoValues() {
-        return paretoValues;
+    public int paretoValue1() {
+        return paretoValues[0];
+    }
+
+    @Override
+    public int paretoValue2() {
+        return paretoValues[1];
+    }
+    @Override
+    public int paretoValue3() {
+        return paretoValues[2];
+    }
+    @Override
+    public int paretoValue4() {
+        return paretoValues[3];
+    }
+    @Override
+    public int paretoValue5() {
+        return paretoValues[4];
     }
 
     @Override

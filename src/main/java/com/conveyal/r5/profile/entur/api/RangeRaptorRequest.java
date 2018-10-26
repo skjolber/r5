@@ -19,13 +19,20 @@ public class RangeRaptorRequest {
     public final int toTime;
 
     /** Times to access each transit stop using the street network in seconds. */
-    public final Collection<DurationToStop> accessStops;
+    public final Collection<StopArrival> accessStops;
 
     /** List of all possible egress stops and time to reach destination in seconds. */
-    public final Collection<DurationToStop> egressStops;
+    public final Collection<StopArrival> egressStops;
 
     /**
      * Step for departure times between each RangeRaptor iterations.
+     * This is a performance optimization parameter.
+     * A transit network usually uses minute resolution for the its timetable,
+     * so to match that set this variable to 60 seconds. Setting it
+     * to less then 60 will not give better result, but degrade performance.
+     * Setting it to 120 seconds will improve performance, but you might get a
+     * slack of 60 seconds somewhere in the result - most likely in the first
+     * walking leg.
      */
     public final int departureStepInSeconds;
 
@@ -36,7 +43,7 @@ public class RangeRaptorRequest {
     public final int boardSlackInSeconds;
 
 
-    public RangeRaptorRequest(int fromTime, int toTime, Collection<DurationToStop> accessStops, Collection<DurationToStop> egressStops, int departureStepInSeconds, int boardSlackInSeconds) {
+    public RangeRaptorRequest(int fromTime, int toTime, Collection<StopArrival> accessStops, Collection<StopArrival> egressStops, int departureStepInSeconds, int boardSlackInSeconds) {
         this.fromTime = fromTime;
         this.toTime = toTime;
         this.accessStops = accessStops;

@@ -1,14 +1,14 @@
-package com.conveyal.r5.util;
+package com.conveyal.r5.util.paretoset;
 
-import com.conveyal.r5.profile.entur.util.ParetoSet;
-import com.conveyal.r5.profile.entur.util.ParetoSortable;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoSet;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoSortable;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
-import static com.conveyal.r5.profile.entur.util.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
+import static com.conveyal.r5.profile.entur.util.paretoset.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
 import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 
@@ -93,8 +93,16 @@ public class ParetoSetTest {
         }
 
         @Override
-        public int[] paretoValues() {
-            return values;
+        public int paretoValue1() {
+            return values[0];
+        }
+        @Override
+        public int paretoValue2() {
+            return values[1];
+        }
+        @Override
+        public int paretoValue3() {
+            return values[2];
         }
 
         @Override

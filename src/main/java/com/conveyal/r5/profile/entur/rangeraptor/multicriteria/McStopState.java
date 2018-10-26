@@ -1,26 +1,65 @@
 package com.conveyal.r5.profile.entur.rangeraptor.multicriteria;
 
+import com.conveyal.r5.profile.entur.api.StopArrival;
 import com.conveyal.r5.profile.entur.rangeraptor.standard.StopState;
-import com.conveyal.r5.profile.entur.api.PathLeg;
 import com.conveyal.r5.profile.entur.util.DebugState;
-import com.conveyal.r5.profile.entur.util.ParetoSortable;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoDominanceFunctions;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoSortable;
 
 import java.util.LinkedList;
 import java.util.List;
 
+import static com.conveyal.r5.profile.entur.util.paretoset.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
+
 public abstract class McStopState implements StopState, ParetoSortable {
+    static final ParetoDominanceFunctions.Builder PARETO_FUNCTION = createParetoDominanceFunctionArray()
+            .lessThen(1)  // time - needs to be 1 seconds better to make it into the pareto set.
+            .lessThen()   // rounds
+            .lessThen(55) // cost, assuming meters or seconds as unit for cost
+            ;
+
     private final McStopState previousState;
     private final int round;
     private final int stopIndex;
-    private final int[] paretoValues = new int[2];
+    private final int time;
+    private final int roundPareto;
+    private final int cost;
 
-    McStopState(McStopState previousState, int round, int roundPareto, int stopIndex, int time) {
+
+    private McStopState(McStopState previousState, int round, int roundPareto, int stopIndex, int arrivalTime, int cost) {
         this.previousState = previousState;
         this.round = round;
+        this.roundPareto = roundPareto;
         this.stopIndex = stopIndex;
-        this.paretoValues[0] = roundPareto;
-        this.paretoValues[1] = time;
+        this.time = arrivalTime;
+        this.cost = cost;
     }
+
+    /**
+     * Initial state - first stop visited.
+     */
+    McStopState(StopArrival stopArrival, int arrivalTime) {
+        this(null, 0, 0, stopArrival.stop(), arrivalTime, stopArrival.cost());
+    }
+
+    /**
+     * Arrive by transfer.
+     */
+    McStopState(McStopState previousState, int round, int roundPareto, StopArrival stopArrival, int arrivalTime) {
+        this(previousState, round, roundPareto, stopArrival.stop(), arrivalTime, stopArrival.cost());
+    }
+
+    /**
+     * Arrive by transfer.
+     */
+    McStopState(McStopState previousState, int round, int roundPareto, int stopIndex, int arrivalTime) {
+        this(previousState, round, roundPareto, stopIndex, arrivalTime, previousState.cost);
+    }
+
+    /* pareto vector */
+    @Override public final int paretoValue1() { return time;        }
+    @Override public final int paretoValue2() { return roundPareto; }
+    @Override public final int paretoValue3() { return cost;        }
 
     final int previousStop() {
         return previousState.stopIndex;
@@ -40,12 +79,7 @@ public abstract class McStopState implements StopState, ParetoSortable {
 
     @Override
     public final int time() {
-        return paretoValues[1];
-    }
-
-    @Override
-    public final int[] paretoValues() {
-        return paretoValues;
+        return time;
     }
 
     @Override
@@ -95,7 +129,7 @@ public abstract class McStopState implements StopState, ParetoSortable {
 
     @Override
     public String toString() {
-        return asString(type().name(), round(), previousState==null ? -1 : previousState.stopIndex);
+        return asString(type().name(), round(), previousState == null ? -1 : previousState.stopIndex);
     }
 
     abstract DebugState.Type type();

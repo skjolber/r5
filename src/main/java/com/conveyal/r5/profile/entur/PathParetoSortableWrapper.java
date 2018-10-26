@@ -1,28 +1,38 @@
 package com.conveyal.r5.profile.entur;
 
 import com.conveyal.r5.profile.Path;
-import com.conveyal.r5.profile.entur.util.ParetoDominanceFunctions;
-import com.conveyal.r5.profile.entur.util.ParetoSortable;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoDominanceFunctions;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoSortable;
 
-import static com.conveyal.r5.profile.entur.util.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
+import static com.conveyal.r5.profile.entur.util.paretoset.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
 
 @Deprecated
 public class PathParetoSortableWrapper implements ParetoSortable {
 
     public final Path path;
-    private final int[] paretoValues = new int[3];
+    private final int patternsHash;
+    private final int boardTime;
+    private final int totalJourneyDuration;
 
     public PathParetoSortableWrapper(Path path, int totalJourneyDuration) {
         this.path = path;
         // We uses a hash(), but this may lead to collision and lost paths
-        paretoValues[0] = hash(path.patterns);
-        paretoValues[1] = path.boardTimes[0];
-        paretoValues[2] = totalJourneyDuration;
+        this.patternsHash = hash(path.patterns);
+        this.boardTime = path.boardTimes[0];
+        this.totalJourneyDuration = totalJourneyDuration;
     }
 
     @Override
-    public int[] paretoValues() {
-        return paretoValues;
+    public int paretoValue1() {
+        return patternsHash;
+    }
+    @Override
+    public int paretoValue2() {
+        return boardTime;
+    }
+    @Override
+    public int paretoValue3() {
+        return totalJourneyDuration;
     }
 
     public static ParetoDominanceFunctions.Builder paretoDominanceFunctions() {
