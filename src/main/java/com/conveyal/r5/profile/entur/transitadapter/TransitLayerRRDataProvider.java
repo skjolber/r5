@@ -1,12 +1,11 @@
 package com.conveyal.r5.profile.entur.transitadapter;
 
 import com.conveyal.r5.api.util.TransitModes;
-import com.conveyal.r5.profile.entur.api.Pattern;
-import com.conveyal.r5.profile.entur.api.DurationToStop;
-import com.conveyal.r5.profile.entur.api.TransitDataProvider;
-import com.conveyal.r5.profile.entur.api.TripScheduleInfo;
+import com.conveyal.r5.profile.entur.api.transit.TransferLeg;
+import com.conveyal.r5.profile.entur.api.transit.TransitDataProvider;
+import com.conveyal.r5.profile.entur.api.transit.TripPatternInfo;
+import com.conveyal.r5.profile.entur.api.transit.UnsignedIntIterator;
 import com.conveyal.r5.profile.entur.util.AvgTimer;
-import com.conveyal.r5.profile.entur.util.BitSetIterator;
 import com.conveyal.r5.transit.RouteInfo;
 import com.conveyal.r5.transit.TransitLayer;
 import com.conveyal.r5.transit.TripPattern;
@@ -25,7 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.stream.IntStream;
 
-public class TransitLayerRRDataProvider implements TransitDataProvider {
+public class TransitLayerRRDataProvider implements TransitDataProvider<TripSchedule> {
 
     private static AvgTimer TIMER_INIT_STOP_TIMES = AvgTimer.timerMilliSec("TransitLayerRRDataProvider:init stops");
 
@@ -40,22 +39,17 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
     /** Schedule-based trip patterns running on a given day */
     private TripPattern[] runningScheduledPatterns;
 
-    /** Map from internal, filtered pattern indices back to original pattern indices for scheduled patterns */
-    private int[] originalPatternIndexForScheduledIndex;
-
     /** Services active on the date of the search */
     private final BitSet servicesActive;
 
     /** Allowed transit modes */
     private final EnumSet<TransitModes> transitModes;
 
-    private final int walkSpeedMillimetersPerSecond;
-
     private final List<LightweightTransferIterator> transfers;
 
-    private static final Iterator<DurationToStop> EMPTY_TRANSFER_ITERATOR = new Iterator<DurationToStop>() {
+    private static final Iterator<TransferLeg> EMPTY_TRANSFER_ITERATOR = new Iterator<TransferLeg>() {
         @Override public boolean hasNext() { return false; }
-        @Override public DurationToStop next() { return null; }
+        @Override public TransferLeg next() { return null; }
     };
 
     public TransitLayerRRDataProvider(TransitLayer transitLayer, LocalDate date, EnumSet<TransitModes> transitModes, float walkSpeedMetersPerSecond) {
@@ -63,7 +57,7 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
         this.transitLayer = transitLayer;
         this.servicesActive  = transitLayer.getActiveServicesForDate(date);
         this.transitModes = transitModes;
-        this.walkSpeedMillimetersPerSecond = (int)(walkSpeedMetersPerSecond * 1000f);
+        int walkSpeedMillimetersPerSecond = (int) (walkSpeedMetersPerSecond * 1000f);
         this.transfers = createTransfers(transitLayer.transfersForStop, walkSpeedMillimetersPerSecond);
         TIMER_INIT_STOP_TIMES.stop();
     }
@@ -72,14 +66,14 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
 
         List<LightweightTransferIterator> list = new ArrayList<>();
 
-        for (int i = 0; i < transfers.size(); i++) {
-            list.add(transfersAt(transfers.get(i), walkSpeedMillimetersPerSecond));
+        for (TIntList transfer : transfers) {
+            list.add(transfersAt(transfer, walkSpeedMillimetersPerSecond));
         }
         return list;
     }
 
     @Override
-    public Iterator<DurationToStop> getTransfers(int stop) {
+    public Iterator<TransferLeg> getTransfers(int stop) {
         LightweightTransferIterator it = transfers.get(stop);
 
         if(it == null) return EMPTY_TRANSFER_ITERATOR;
@@ -104,9 +98,13 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
     }
 
     @Override
-    public boolean isTripScheduleInService(TripScheduleInfo trip) {
-        TripSchedule t = (TripSchedule) trip;
-        return t.headwaySeconds == null && servicesActive.get(t.serviceCode);
+    public boolean isTripScheduleInService(TripSchedule trip) {
+        return trip.headwaySeconds == null && servicesActive.get(trip.serviceCode);
+    }
+
+    @Override
+    public int numberOfStops() {
+        return transitLayer.getStopCount();
     }
 
     /** Prefilter the patterns to only ones that are running */
@@ -131,7 +129,8 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
             }
         }
 
-        originalPatternIndexForScheduledIndex = scheduledPatterns.toArray();
+        // Map from internal, filtered pattern indices back to original pattern indices for scheduled patterns
+        int[] originalPatternIndexForScheduledIndex = scheduledPatterns.toArray();
 
         runningScheduledPatterns = IntStream.of(originalPatternIndexForScheduledIndex)
                 .mapToObj(transitLayer.tripPatterns::get).toArray(TripPattern[]::new);
@@ -141,9 +140,10 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
                     transitLayer.tripPatterns.size(), scheduledPatterns.size());
             PRINT_REFILTERING_PATTERNS_INFO = false;
         }
+
     }
 
-    @Override public Iterator<Pattern> patternIterator(BitSetIterator stops) {
+    @Override public Iterator<TripPatternInfo<TripSchedule>> patternIterator(UnsignedIntIterator stops) {
         return new InternalPatternIterator(getPatternsTouchedForStops(stops));
     }
 
@@ -153,7 +153,7 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
      * "touched" means they were reached in the last round, and the index maps from the original pattern index to the
      * local index of the filtered patterns.
      */
-    private BitSet getPatternsTouchedForStops(BitSetIterator stops) {
+    private BitSet getPatternsTouchedForStops(UnsignedIntIterator stops) {
         BitSet patternsTouched = new BitSet();
 
         for (int stop = stops.next(); stop >= 0; stop = stops.next()) {
@@ -175,9 +175,8 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
         return transitLayer.patternsForStop.get(stop);
     }
 
-    class InternalPatternIterator implements Pattern, Iterator<Pattern> {
+    class InternalPatternIterator implements TripPatternInfo<TripSchedule>, Iterator<TripPatternInfo<TripSchedule>> {
         private int nextPatternIndex;
-        private int originalPatternIndex;
         private BitSet patternsTouched;
         private TripPattern pattern;
 
@@ -192,9 +191,8 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
             return nextPatternIndex >=0;
         }
 
-        @Override public Pattern next() {
+        @Override public TripPatternInfo<TripSchedule> next() {
             pattern = runningScheduledPatterns[nextPatternIndex];
-            originalPatternIndex = originalPatternIndexForScheduledIndex[nextPatternIndex];
             nextPatternIndex = patternsTouched.nextSetBit(nextPatternIndex + 1);
             return this;
         }
@@ -202,27 +200,23 @@ public class TransitLayerRRDataProvider implements TransitDataProvider {
 
         /*  Pattern interface implementation */
 
-        @Override public int originalPatternIndex() {
-            return originalPatternIndex;
-        }
-
         @Override
-        public int currentPatternStop(int stopPositionInPattern) {
+        public int stopIndex(int stopPositionInPattern) {
             return pattern.stops[stopPositionInPattern];
         }
 
         @Override
-        public int currentPatternStopsSize() {
+        public int numberOfStopsInPattern() {
             return pattern.stops.length;
         }
 
         @Override
-        public TripScheduleInfo getTripSchedule(int index) {
+        public TripSchedule getTripSchedule(int index) {
             return pattern.tripSchedules.get(index);
         }
 
         @Override
-        public int getTripScheduleSize() {
+        public int numberOfTripSchedules() {
             return pattern.tripSchedules.size();
         }
     }

@@ -1,16 +1,18 @@
 package com.conveyal.r5.profile.entur.transitadapter;
 
-import com.conveyal.r5.profile.entur.api.DurationToStop;
+import com.conveyal.r5.profile.entur.api.transit.TransferLeg;
 
 import java.util.Iterator;
 
 
 /**
- * Create a lightweigth DutationToStop iterator, using a singel object to represent
- * the iterator and all instances of the DurationToStop. The DurationToStop is
- * only valid for the duration of on step
+ * Create a lightweight TransferLeg iterator, using a single object to represent
+ * the iterator and all instances of the TransferLeg. The TransferLeg is
+ * only valid for the duration of one step.
+ * <p/>
+ * NOT THREAD SAFE!
  */
-class LightweightTransferIterator implements Iterator<DurationToStop>, DurationToStop {
+class LightweightTransferIterator implements Iterator<TransferLeg>, TransferLeg {
     private final int[] durationToStops;
     private int index;
 
@@ -20,7 +22,7 @@ class LightweightTransferIterator implements Iterator<DurationToStop>, DurationT
     }
 
 
-    /* Iterator<DurationToStop> methods */
+    /* Iterator<TransferLeg> methods */
 
     @Override
     public boolean hasNext() {
@@ -29,11 +31,11 @@ class LightweightTransferIterator implements Iterator<DurationToStop>, DurationT
     }
 
     @Override
-    public DurationToStop next() {
+    public TransferLeg next() {
         return this;
     }
 
-    /* DurationToStop, lightweight implementation */
+    /* TransferLeg, lightweight implementation */
 
     @Override
     public int stop() {
@@ -45,11 +47,15 @@ class LightweightTransferIterator implements Iterator<DurationToStop>, DurationT
         return durationToStops[index + 1];
     }
 
+    @Override
+    public int cost() { return durationInSeconds(); }
 
     /**
      * Used to reset the iterator, to start at the beginning again. This
-     * enables the iterator to be reused, but be carefull to not use it in a multi
+     * enables the iterator to be reused, but be careful to not use it in a multi
      * threaded environment.
+     * <p/>
+     * NOT THREAD SAFE!
      */
     void reset() {
         this.index = this.durationToStops.length == 0 ? 0 : -2;

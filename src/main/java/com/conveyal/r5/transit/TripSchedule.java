@@ -2,7 +2,7 @@ package com.conveyal.r5.transit;
 
 import com.conveyal.gtfs.model.Frequency;
 import com.conveyal.gtfs.model.Trip;
-import com.conveyal.r5.profile.entur.api.TripScheduleInfo;
+import com.conveyal.r5.profile.entur.api.transit.TripScheduleInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,6 +79,8 @@ public class TripSchedule implements Serializable, Comparable<TripSchedule>, Clo
      * TODO phasing now works differently, is this still needed?
      */
     public int[] stopSequences;
+
+    private TripPattern tripPattern;
 
     /** static factory so we can return null */
     public static TripSchedule create (Trip trip, int[] arrivals, int[] departures, Collection<Frequency> frequencies, int[] stopSequences, int serviceCode) {
@@ -265,5 +267,21 @@ public class TripSchedule implements Serializable, Comparable<TripSchedule>, Clo
     @Override
     public int departure(int stopPosInPattern) {
         return departures[stopPosInPattern];
+    }
+
+    @Override
+    public String debugInfo() {
+        return tripPattern.routeId;
+    }
+
+    public void setPattern(TripPattern tripPattern) {
+        if(this.tripPattern != null) {
+            throw new IllegalStateException("Trip schedule is added to more tan one pattern!!!!");
+        }
+        this.tripPattern = tripPattern;
+    }
+
+    public TripPattern tripPattern() {
+        return tripPattern;
     }
 }

@@ -1,28 +1,29 @@
 package com.conveyal.r5.speed_test;
 
-import com.conveyal.r5.profile.entur.util.ParetoDominanceFunctions;
-import com.conveyal.r5.profile.entur.util.ParetoSortable;
 import com.conveyal.r5.profile.entur.util.TimeUtils;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoComparator;
+import com.conveyal.r5.profile.entur.util.paretoset.ParetoComparatorBuilder;
 import com.conveyal.r5.speed_test.api.model.Itinerary;
 import com.conveyal.r5.speed_test.api.model.Leg;
 
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.conveyal.r5.profile.entur.util.ParetoDominanceFunctions.createParetoDominanceFunctionArray;
 import static com.conveyal.r5.profile.entur.util.TimeUtils.timeToStrCompact;
 import static com.conveyal.r5.profile.entur.util.TimeUtils.timeToStrShort;
 
-public class SpeedTestItinerary extends Itinerary implements ParetoSortable {
+public class SpeedTestItinerary extends Itinerary {
 
-    private final int[] paretoValues = new int[5];
+    private int durationSeconds;
+    private int walkDistanceMeters;
+    private int endTimeSeconds;
+    //private int modesHash;
+    private int agenciesHash;
 
     void initParetoVector() {
-        int i = 0;
-        paretoValues[i++] = this.transfers;
-        paretoValues[i++] = this.duration.intValue();
-        paretoValues[i++] = this.walkDistance.intValue();
-        paretoValues[i++] = (int) (this.endTime.getTimeInMillis() / 1000);
+        durationSeconds = this.duration.intValue();
+        walkDistanceMeters = this.walkDistance.intValue();
+        endTimeSeconds = (int) (this.endTime.getTimeInMillis() / 1000);
 
         //Set<String> modes = new HashSet<>();
         Set<String> agencies = new HashSet<>();
@@ -45,23 +46,19 @@ public class SpeedTestItinerary extends Itinerary implements ParetoSortable {
                 }
             }
         }
-        //paretoValues[i++] = modes.hashCode();
-        paretoValues[i] = agencies.hashCode();
+        //modesHash = modes.hashCode();
+        agenciesHash = agencies.hashCode();
     }
 
-    static ParetoDominanceFunctions.Builder paretoDominanceFunctions() {
-        return createParetoDominanceFunctionArray()
-                .lessThen()
-                .lessThen()
-                .lessThen()
-                .lessThen()
-                //.different()
-                .different();
-    }
-
-    @Override
-    public int[] paretoValues() {
-        return paretoValues;
+    static ParetoComparator<SpeedTestItinerary> paretoDominanceFunctions() {
+        return new ParetoComparatorBuilder<SpeedTestItinerary>()
+                .lessThen(it -> it.transfers)
+                .lessThen(it -> it.durationSeconds)
+                .lessThen(it -> it.walkDistanceMeters)
+                .lessThen(it -> it.endTimeSeconds)
+                //.different(it -> it.modesHash)
+                .different(it -> it.agenciesHash)
+                .build();
     }
 
     @Override

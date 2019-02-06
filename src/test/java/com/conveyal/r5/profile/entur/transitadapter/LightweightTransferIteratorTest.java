@@ -1,11 +1,13 @@
 package com.conveyal.r5.profile.entur.transitadapter;
 
-import com.conveyal.r5.profile.entur.api.DurationToStop;
+import com.conveyal.r5.profile.entur.api.transit.TransferLeg;
 import org.junit.Test;
 
 import java.util.Iterator;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class LightweightTransferIteratorTest {
 
@@ -22,8 +24,8 @@ public class LightweightTransferIteratorTest {
 
     @Test
     public void an_iterator_should_return_the_elements_in_order() {
-        Iterator<DurationToStop> subject = new LightweightTransferIterator(new int[]{STOP_A, DURATION_A, STOP_B, DURATION_B});
-        DurationToStop d;
+        Iterator<TransferLeg> subject = new LightweightTransferIterator(new int[]{STOP_A, DURATION_A, STOP_B, DURATION_B});
+        TransferLeg d;
 
         // Check first element (stop and duration)
         assertTrue(subject.hasNext());

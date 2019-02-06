@@ -8,7 +8,7 @@
 
     <groupId>com.conveyal</groupId>
     <artifactId>r5</artifactId>
-    <version>4.0.0-SNAPSHOT</version>
+    <version>entur.1.1.1-SNAPSHOT</version>
     <packaging>jar</packaging>
     <licenses>
         <license>
@@ -74,13 +74,13 @@
     <!-- Define where the artifacts produced by this build will be deployed -->
     <distributionManagement>
         <snapshotRepository>
-            <id>Nexus</id>
-            <url>https://nexus.rutebanken.org/content/repositories/snapshots</url>
+            <id>snapshots</id>
+            <name>entur2-snapshots</name>
+            <url>https://entur2.jfrog.io/entur2/libs-snapshot-local</url>
         </snapshotRepository>
     </distributionManagement>
 
     <build>
-
         <resources>
             <resource>
                 <!-- Filtering means Maven will substitute some variables into files in the resources directory before
@@ -248,52 +248,6 @@
                     <!--</execution>-->
                 <!--</executions>-->
             <!--</plugin>-->
-
-            <plugin>
-                <groupId>io.fabric8</groupId>
-                <artifactId>fabric8-maven-plugin</artifactId>
-                <version>${fabric8.version}</version>
-                <executions>
-                    <execution>
-                        <id>json</id>
-                        <phase>generate-resources</phase>
-                        <goals>
-                            <goal>json</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>attach</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>attach</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>io.fabric8</groupId>
-                <artifactId>docker-maven-plugin</artifactId>
-                <version>${docker.maven.plugin.version}</version>
-                <configuration>
-                    <images>
-                        <image>
-                            <name>${docker.image}</name>
-                            <build>
-                                <from>${docker.from}</from>
-                                <cleanup>${docker.cleanup}</cleanup>
-                                <assembly>
-                                    <basedir>/deployments</basedir>
-                                    <descriptorRef>artifact</descriptorRef>
-                                </assembly>
-                                <env>
-                                    <JAVA_APP_JAR>${project.build.finalName}.jar</JAVA_APP_JAR>
-                                </env>
-                            </build>
-                        </image>
-                    </images>
-                </configuration>
-            </plugin>
         </plugins>
     </build>
 
